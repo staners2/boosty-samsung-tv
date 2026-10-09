@@ -7,7 +7,7 @@ import {parseHTML} from 'linkedom';
 
 const bundle = await build({entryPoints: ['web/tv/app.js'], bundle: true, format: 'iife', write: false, target: 'es2019'});
 const tick = () => new Promise(resolve => setImmediate(resolve));
-async function screen({stallProgress = false, reading = false, browser = false, timecode = false, seekError = false, pages, feedOnly = false, stallFeed = false, stallInitialFeed = false, body, previewError = false, contentId = 'content-17', twoVideos = false, stallPreview = false, language = 'ru', storageBlocked = false, offline = false} = {}) {
+async function screen({stallProgress = false, reading = false, browser = false, timecode = false, seekError = false, pages, feedOnly = false, stallFeed = false, stallInitialFeed = false, body, previewError = false, contentId = 'content-17', metadataDuration = 180, twoVideos = false, stallPreview = false, language = 'ru', storageBlocked = false, offline = false} = {}) {
   const {document, window} = parseHTML(await readFile('web/tv/index.html', 'utf8'));
   const calls = [];
   let listener, finishProgress, finishFeed, finishInitialFeed, focused, intersection, initialFeedCount = 0;
@@ -22,7 +22,7 @@ async function screen({stallProgress = false, reading = false, browser = false, 
   window.HTMLElement.prototype.getClientRects = function () { return this.hidden ? [] : [this.getBoundingClientRect()]; };
   window.scrollX = 0; window.scrollY = 0;
   window.scrollTo = (x, y) => {window.scrollX = x; window.scrollY = y;};
-  const video = {id: 'vid-1', contentId, title: 'Проверка просмотра', duration: 180, timeCode: 0, preview: null, sources: [
+  const video = {id: 'vid-1', contentId, title: 'Проверка просмотра', duration: metadataDuration, timeCode: 0, preview: null, sources: [
     {url: 'https://video.example/master.m3u8', quality: 'hls', label: 'Авто'},
     {url: 'https://video.example/a.mp4', quality: 'full_hd', label: '1080p'}]};
   const post = {id: 'post-1', blog: 'test-author', title: 'Проверка публикации', locked: false,
@@ -251,6 +251,16 @@ test('scrubbing shows the selected chapter immediately across boundaries and nev
     assert.equal(panel.querySelector('.preview-chapter')?.textContent, '');
   }
   assert.equal(ui.calls.filter(([name]) => name === 'seek').length, 0);
+  await ui.document.getElementById('close-player').onclick();
+});
+
+test('timeline chapters use measured playback duration when Boosty has no duration metadata', async () => {
+  const ui = await screen({metadataDuration: 0, body: [{type: 'timecode', seconds: 10, videoId: 'vid-1', description: 'Обсуждение результатов'}]});
+  const timeline = ui.document.getElementById('timeline');
+  timeline.focus(); timeline.value = '20'; timeline.oninput();
+  assert.equal(timeline.disabled, false);
+  assert.equal(timeline.max, 180);
+  assert.equal(ui.document.querySelector('#timeline-preview .preview-chapter')?.textContent, 'Обсуждение результатов');
   await ui.document.getElementById('close-player').onclick();
 });
 

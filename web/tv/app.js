@@ -76,7 +76,7 @@ function selectTimelineFrame() {
   let chapter;
   for (const block of currentPost.body || []) {
     if (block.type === 'timecode' && block.videoId === currentVideo.id && Number.isFinite(block.seconds)
-      && block.seconds >= 0 && block.seconds <= seconds && block.seconds < currentVideo.duration
+      && block.seconds >= 0 && block.seconds <= seconds && block.seconds < player.duration
       && (!chapter || block.seconds > chapter.seconds)) chapter = block;
   }
   selectFrame(currentPost, currentVideo, seconds, chapter?.description || '');
