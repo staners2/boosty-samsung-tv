@@ -1,0 +1,17 @@
+node_modules
+dist
+data
+.env*
+.git
+secrets
+*.key
+*.pem
+*.log
+*.p12
+*.wgt
+*.profraw
+test
+README.md
+README.ru.md
+charts
+docs

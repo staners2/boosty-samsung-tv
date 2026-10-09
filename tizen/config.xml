@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<widget xmlns="http://www.w3.org/ns/widgets" xmlns:tizen="http://tizen.org/ns/widgets" id="https://example.org/boosty-tv" version="0.1.0" viewmodes="maximized">
+  <tizen:application id="BstTV00001.BoostyTV" package="BstTV00001" required_version="9.0"/>
+  <content src="index.html"/>
+  <name>Boosty TV</name>
+  <icon src="icon.png"/>
+  <tizen:profile name="tv-samsung"/>
+  <feature name="http://tizen.org/feature/screen.size.all"/>
+  <tizen:privilege name="http://tizen.org/privilege/internet"/>
+  <tizen:privilege name="http://tizen.org/privilege/tv.inputdevice"/>
+  <access origin="*" subdomains="true"/>
+  <tizen:content-security-policy>default-src 'none'; script-src 'self' file:; style-src 'self'; connect-src {{API_ORIGIN}}; img-src 'self' data: https:; media-src https:; object-src 'self'; base-uri 'none'; form-action 'none'</tizen:content-security-policy>
+  <tizen:setting screen-orientation="landscape" context-menu="disable" background-support="disable" encryption="disable" install-location="auto" hwkey-event="enable"/>
+</widget>

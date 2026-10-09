@@ -1,0 +1,44 @@
+services:
+  data-init:
+    image: ${BOOSTY_IMAGE:-boosty-tv:local}
+    build: .
+    user: "0:0"
+    entrypoint: ["sh", "-c", "chown 1000:1000 /data && chmod 700 /data"]
+    volumes:
+      - data:/data
+    network_mode: none
+    restart: "no"
+  app:
+    image: ${BOOSTY_IMAGE:-boosty-tv:local}
+    build: .
+    depends_on:
+      data-init:
+        condition: service_completed_successfully
+    environment:
+      PUBLIC_URL: ${PUBLIC_URL:?Set PUBLIC_URL to your HTTPS origin}
+      BASE_PATH: ${BASE_PATH:-}
+      HOST: 0.0.0.0
+      PORT: "8787"
+      DATA_DIR: /data
+      STATIC_DIR: /app/dist
+      VAULT_KEY_FILE: /run/secrets/boosty/vault.key
+      NODE_ENV: production
+    ports:
+      - "127.0.0.1:${HTTP_PORT:-8787}:8787"
+    user: "1000:1000"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    tmpfs:
+      - /tmp:rw,nosuid,noexec,size=64m
+    volumes:
+      - data:/data
+      - ${VAULT_KEY_FILE:-./secrets/vault.key}:/run/secrets/boosty/vault.key:ro
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8787'+(process.env.BASE_PATH||'')+'/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      start_period: 10s
+volumes:
+  data:

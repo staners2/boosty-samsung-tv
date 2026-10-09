@@ -1,0 +1,205 @@
+{
+  "$schema": "https://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "required": [
+    "image",
+    "config",
+    "service",
+    "secrets",
+    "persistence",
+    "replicaCount"
+  ],
+  "properties": {
+    "fullnameOverride": {
+      "type": "string",
+      "pattern": "^$|^[a-z0-9]([-a-z0-9]*[a-z0-9])?$",
+      "maxLength": 63
+    },
+    "replicaCount": {
+      "const": 1
+    },
+    "image": {
+      "type": "object",
+      "required": [
+        "repository",
+        "tag",
+        "digest",
+        "pullPolicy"
+      ],
+      "properties": {
+        "repository": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[a-zA-Z0-9][a-zA-Z0-9._:/-]*$"
+        },
+        "tag": {
+          "type": "string",
+          "pattern": "^$|^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$"
+        },
+        "digest": {
+          "type": "string",
+          "pattern": "^$|^sha256:[a-f0-9]{64}$"
+        },
+        "pullPolicy": {
+          "enum": [
+            "Always",
+            "IfNotPresent",
+            "Never"
+          ]
+        }
+      },
+      "oneOf": [
+        {
+          "properties": {
+            "tag": {
+              "minLength": 1
+            },
+            "digest": {
+              "const": ""
+            }
+          }
+        },
+        {
+          "properties": {
+            "tag": {
+              "const": ""
+            },
+            "digest": {
+              "minLength": 1
+            }
+          }
+        }
+      ]
+    },
+    "config": {
+      "type": "object",
+      "required": [
+        "publicUrl",
+        "basePath"
+      ],
+      "properties": {
+        "publicUrl": {
+          "type": "string",
+          "pattern": "^https://([A-Za-z0-9-]+\\.)*[A-Za-z0-9-]+(:[0-9]{1,5})?$"
+        },
+        "basePath": {
+          "type": "string",
+          "pattern": "^$|^/[a-zA-Z0-9_-]{1,80}$"
+        }
+      }
+    },
+    "service": {
+      "type": "object",
+      "required": [
+        "port",
+        "targetPort"
+      ],
+      "properties": {
+        "port": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 65535
+        },
+        "targetPort": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 65535
+        }
+      }
+    },
+    "secrets": {
+      "type": "object",
+      "required": [
+        "existingSecret",
+        "key"
+      ],
+      "properties": {
+        "existingSecret": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[a-z0-9]([-a-z0-9.]*[a-z0-9])?$"
+        },
+        "key": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9._-]+$"
+        }
+      }
+    },
+    "persistence": {
+      "type": "object",
+      "required": [
+        "existingClaim",
+        "storageClass",
+        "size"
+      ],
+      "properties": {
+        "existingClaim": {
+          "type": "string"
+        },
+        "storageClass": {
+          "type": "string"
+        },
+        "size": {
+          "type": "string",
+          "pattern": "^[1-9][0-9]*(Mi|Gi|Ti)$"
+        }
+      }
+    },
+    "ingress": {
+      "type": "object",
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "hostname": {
+          "type": "string"
+        },
+        "className": {
+          "type": "string"
+        },
+        "tls": {
+          "type": "array"
+        }
+      }
+    },
+    "route": {
+      "type": "object",
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "hostname": {
+          "type": "string"
+        },
+        "parentRefs": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "name"
+            ],
+            "properties": {
+              "name": {
+                "type": "string",
+                "minLength": 1
+              },
+              "namespace": {
+                "type": "string"
+              },
+              "sectionName": {
+                "type": "string"
+              },
+              "kind": {
+                "const": "Gateway"
+              },
+              "group": {
+                "const": "gateway.networking.k8s.io"
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

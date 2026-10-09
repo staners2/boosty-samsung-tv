@@ -1,0 +1,14 @@
+node_modules/
+dist/
+data/
+.env*
+!.env.example
+secrets/
+values.local.yaml
+.DS_Store
+*.key
+*.pem
+*.log
+*.wgt
+*.p12
+*.profraw

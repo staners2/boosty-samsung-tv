@@ -1,0 +1,6 @@
+apiVersion: v2
+name: boosty-tv
+description: Self-hosted Boosty reader and video client for Samsung TV and browsers
+type: application
+version: 0.1.0
+appVersion: "0.1.0"

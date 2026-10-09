@@ -1,0 +1,37 @@
+fullnameOverride: ""
+replicaCount: 1
+image:
+  repository: ""
+  tag: ""
+  digest: ""
+  pullPolicy: IfNotPresent
+imagePullSecrets: []
+config:
+  publicUrl: ""
+  basePath: ""
+service:
+  port: 8787
+  targetPort: 8787
+secrets:
+  existingSecret: ""
+  key: vault.key
+persistence:
+  existingClaim: ""
+  storageClass: ""
+  size: 1Gi
+resources:
+  requests:
+    cpu: 100m
+    memory: 128Mi
+  limits:
+    cpu: "1"
+    memory: 256Mi
+ingress:
+  enabled: false
+  className: ""
+  hostname: ""
+  tls: []
+route:
+  enabled: false
+  hostname: ""
+  parentRefs: []
