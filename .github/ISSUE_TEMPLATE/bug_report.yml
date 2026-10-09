@@ -1,0 +1,36 @@
+name: Bug report
+description: Report a reproducible playback, pairing, navigation or installation problem.
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Do not include tokens, cookies, phone numbers, vault keys, signed media URLs or active pairing QR codes. Remove them from logs and screenshots before posting.
+  - type: dropdown
+    id: platform
+    attributes:
+      label: Where does the problem occur?
+      options:
+        - Samsung TV
+        - PC browser
+        - Server or installation
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Device and installation
+      description: TV model and Tizen version, or browser and OS; app commit/tag; server installation method (source, Docker Compose or Helm). Include Node.js version for a source installation. Write unknown if a version is unavailable.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: Include what you expected and what happened. For playback problems, specify MP4 or HLS if known.
+    validations:
+      required: true
+  - type: textarea
+    id: errors
+    attributes:
+      label: Sanitized errors or screenshots
+      description: Include relevant error messages with sensitive data removed.

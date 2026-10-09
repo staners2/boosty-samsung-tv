@@ -1,11 +1,25 @@
-# Boosty TV
+# Boosty for Samsung TV (Tizen)
 
-[Русский](README.ru.md) · English
+English · [Русский](README.ru.md)
 
-Self-hosted, unofficial Boosty reader and video client for Samsung Tizen TVs and
-PC browsers. Read full posts with images, watch subscription videos, navigate
-chapters and seek on a timeline with cached frame previews. Content access still
-depends on your Boosty account and subscriptions; the app does not bypass them.
+[![CI](https://github.com/staners2/boosty-samsung-tv/actions/workflows/ci.yml/badge.svg)](https://github.com/staners2/boosty-samsung-tv/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+
+An unofficial, self-hosted Boosty client for Samsung Tizen TVs and PC browsers.
+Read full posts with images and watch videos from your subscriptions using a TV
+remote or mouse.
+
+You need **your own HTTPS server** and a **Boosty account with a linked phone
+number and access to the desired posts**. The app does not bypass subscriptions.
+
+[PC browser](#source-development-and-pc-use) · [Docker Compose](#docker-compose) ·
+[Samsung TV installation](#samsung-tv-installation) · [Kubernetes / Helm](#kubernetes--helm)
+
+![Boosty feed with creator posts, dates and video durations, shown with demo content](docs/screenshots/feed.png)
+
+Navigate video chapters and select a timeline position with frame previews.
+When a post contains timecoded chapter descriptions, the timeline also shows the
+description for the selected position.
 
 English is the first-run language. Use **EN / RU** in the main screen, player or
 phone page. Your explicit choice is saved locally. Creator content is not translated.
@@ -53,11 +67,18 @@ users must first link a phone number to the same Boosty account.
 - Docker with Compose, or Kubernetes with Helm and persistent RWO storage.
 - Your own HTTPS hostname and trusted TLS certificate, reachable from TV/phone.
 - A Boosty account with a linked phone number and access to the desired posts.
-- For TV sideloading: Samsung Tizen 9.0+ is the current package requirement.
-  Older versions are not claimed supported. A modern PC browser needs no installer.
+- For TV sideloading: Tizen Studio with TV/Web tools and your Samsung signing
+  certificate. A PC browser needs no installer.
 
 The app uses an unofficial upstream API; Boosty changes can affect compatibility.
 Do not expose the broker without TLS. HTTP is accepted only for loopback development.
+
+## Compatibility
+
+| Platform | Requirement | Validation scope |
+| --- | --- | --- |
+| Samsung TV | Tizen 9.0+ is declared in [config.xml](tizen/config.xml) | Native AVPlay, codecs and remote controls need acceptance on the target TV for the current version. Older Tizen versions are not claimed supported. |
+| PC browser | A modern desktop browser | Browser UI fixtures and demo screenshots cover navigation and player behavior. HLS and codec support vary by browser. |
 
 ## First setup: create the key once
 
@@ -222,6 +243,8 @@ needed. Use arrows/OK/Back, or mouse controls. Focus the timeline, use ←/→ t
 time, then OK to seek; Back cancels selection. Browser HLS support varies; select
 an available MP4 quality when needed. Files/external links open a phone QR;
 post text, images, video and chapters render inside the app.
+If the post contains timecoded descriptions for the playing video, selecting a
+timeline position shows the corresponding chapter text.
 
 ## Samsung TV installation
 
@@ -296,6 +319,20 @@ configuration rendering. There are no production mock-login switches.
 
 Source publication excludes dependencies, dist, vault data/keys, .env, signing
 material and private deployment configuration. No private Git history is part
-of this project. Choose and add an owner-approved LICENSE before public release;
-no reuse license has been assigned yet. This is not an official Boosty or Samsung
-product, and it is not a Samsung Store submission.
+of this project. This is not an official Boosty or Samsung product, and it is not
+a Samsung Store submission.
+
+## Support and contributions
+
+For a reproducible problem, use the [bug report form](https://github.com/staners2/boosty-samsung-tv/issues/new?template=bug_report.yml).
+Include the TV model and Tizen version or browser version, app commit/tag, server
+installation method, steps and sanitized errors. Never share tokens, cookies,
+phone numbers, vault keys, signed media URLs or active pairing QR codes.
+
+For a contribution, keep the change focused, run `npm test` and `npm run build`,
+and describe the user-visible result and what you verified. TV-specific changes
+should state whether they were tested on a physical Samsung TV.
+
+## License
+
+[MIT](LICENSE) · Copyright (c) 2026 staners2.

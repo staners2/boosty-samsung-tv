@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="640" viewBox="0 0 1280 640">
+  <rect width="1280" height="640" fill="#18202b"/>
+  <rect width="10" height="640" fill="#f15f2c"/>
+  <g transform="translate(64 58) scale(.22)">
+    <rect width="512" height="512" rx="100" fill="#18202b"/>
+    <rect x="54" y="54" width="404" height="404" rx="82" fill="#f15f2c"/>
+    <path d="M160 132h58v87c20-22 41-32 67-32 61 0 96 43 96 104 0 63-38 107-100 107-28 0-49-10-66-31v24h-55zm119 107c-35 0-62 23-62 55s27 55 62 55 48-24 48-55-15-55-48-55z" fill="#fff"/>
+    <path d="m277 270 34 23-34 23z" fill="#f15f2c"/>
+  </g>
+  <g font-family="Arial, Helvetica, sans-serif" fill="#f3f6fa">
+    <text x="196" y="112" font-size="62" font-weight="700">Boosty TV</text>
+    <text x="196" y="159" font-size="30" fill="#aebac9">Samsung Tizen</text>
+    <text x="72" y="305" font-size="49" font-weight="700">Your subscriptions.</text>
+    <text x="72" y="368" font-size="49" font-weight="700">On the big screen.</text>
+    <text x="72" y="471" font-size="29" fill="#aebac9">Read posts. Watch videos.</text>
+    <text x="72" y="514" font-size="26" fill="#aebac9">Self-hosted · English / Русский</text>
+    <text x="72" y="588" font-size="22" fill="#aebac9">boosty-samsung-tv · Unofficial client</text>
+  </g>
+  <rect x="739" y="217" width="446" height="266" rx="18" fill="#24303d" stroke="#aebac9" stroke-width="6"/>
+  <path d="m938 293 87 57-87 57z" fill="#f15f2c"/>
+  <path d="M961 487v48m-100 0h200" fill="none" stroke="#aebac9" stroke-width="8" stroke-linecap="round"/>
+</svg>

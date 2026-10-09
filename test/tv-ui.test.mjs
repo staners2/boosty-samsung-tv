@@ -209,7 +209,8 @@ test('timeline shows a cached frame honestly while loading the exact selection, 
   timeline.value = '50'; timeline.oninput();
   assert.equal(panel.querySelector('img').hidden, false);
   assert.equal(panel.querySelector('img').src, first);
-  assert.match(panel.textContent, /0:20.*кэш.*0:50/i);
+  assert.match(panel.textContent, /0:50.*Кадр 0:20/);
+  assert.doesNotMatch(panel.textContent, /кэш|cache/i);
   assert.equal(ui.previewRequests.length, 1);
   assert.equal(ui.calls.filter(([name]) => name === 'seek').length, 0);
   t.mock.timers.tick(250); await tick(); ui.previewRequests[1].finish(); await tick();
@@ -218,6 +219,51 @@ test('timeline shows a cached frame honestly while loading the exact selection, 
   assert.doesNotMatch(panel.textContent, /кэш/i);
   const enter = new ui.window.Event('keydown'); enter.keyCode = 13; ui.document.dispatchEvent(enter); await tick();
   assert.deepEqual(ui.calls.filter(([name]) => name === 'seek'), [['seek', 50000]]);
+  await ui.document.getElementById('close-player').onclick();
+});
+
+test('scrubbing shows the selected chapter immediately across boundaries and never uses another video', async t => {
+  t.mock.timers.enable({apis: ['setTimeout']});
+  const body = [
+    {type: 'timecode', seconds: 90, videoId: 'vid-1', description: 'Обсуждение результатов'},
+    {type: 'timecode', seconds: 20, videoId: 'vid-1', description: 'Знакомство'},
+    {type: 'timecode', seconds: 40, videoId: 'vid-10', description: 'Другой ролик'},
+    {type: 'timecode', seconds: 130, videoId: 'vid-1', description: ''},
+  ];
+  const ui = await screen({body, twoVideos: true, stallPreview: true});
+  const timeline = ui.document.getElementById('timeline'), panel = ui.document.getElementById('timeline-preview');
+  timeline.focus();
+  assert.equal(panel.querySelector('.preview-chapter')?.hidden, true);
+  timeline.value = '20'; timeline.oninput();
+  assert.equal(panel.querySelector('.preview-chapter')?.textContent, 'Знакомство');
+  t.mock.timers.tick(250); await tick(); ui.previewRequests[0].finish(); await tick();
+  const frame = panel.querySelector('img').src;
+  for (const [seconds, description] of [[89, 'Знакомство'], [90, 'Обсуждение результатов'], [129, 'Обсуждение результатов']]) {
+    timeline.value = String(seconds); timeline.oninput();
+    assert.equal(panel.querySelector('.preview-chapter')?.textContent, description);
+    assert.equal(panel.querySelector('.preview-chapter')?.hidden, false);
+    assert.equal(panel.querySelector('img').src, frame);
+    assert.doesNotMatch(panel.textContent, /кэш|cache/i);
+  }
+  for (const seconds of [130, 179, 0]) {
+    timeline.value = String(seconds); timeline.oninput();
+    assert.equal(panel.querySelector('.preview-chapter')?.hidden, true);
+    assert.equal(panel.querySelector('.preview-chapter')?.textContent, '');
+  }
+  assert.equal(ui.calls.filter(([name]) => name === 'seek').length, 0);
+  await ui.document.getElementById('close-player').onclick();
+});
+
+test('a chapter with no frame keeps its description and renders markup as literal text', async t => {
+  t.mock.timers.enable({apis: ['setTimeout']});
+  const ui = await screen({body: [{type: 'timecode', seconds: 0, videoId: 'vid-1', description: '<script>chapter()</script>'}], previewError: true});
+  const timeline = ui.document.getElementById('timeline'), panel = ui.document.getElementById('timeline-preview');
+  timeline.focus(); t.mock.timers.tick(250); await tick();
+  assert.equal(panel.querySelector('.preview-chapter')?.textContent, '<script>chapter()</script>');
+  assert.equal(panel.querySelector('script'), null);
+  assert.match(panel.textContent, /Кадр недоступен/);
+  timeline.value = '15'; timeline.oninput(); await timeline.onchange();
+  assert.deepEqual(ui.calls.filter(([name]) => name === 'seek'), [['seek', 15000]]);
   await ui.document.getElementById('close-player').onclick();
 });
 

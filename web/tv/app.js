@@ -38,10 +38,15 @@ const framePreview = new FramePreview({
       panel.hidden = !visible;
       const photo = panel.querySelector('img'); photo.hidden = !visible || !state.image;
       if (photo.hidden) photo.removeAttribute('src'); else if (photo.src !== state.image) photo.src = state.image;
-      if (visible) write(panel.querySelector('figcaption'), state.status === 'cached'
-        ? ui('cachedFrame', {frame: time(state.frameSeconds), selected: time(state.target.seconds)})
-        : ui('frameCaption', () => ({time: time(state.target.seconds), caption: state.target.caption ? ' · ' + state.target.caption : '',
-          status: state.status === 'loading' ? ' · ' + i18n.text('loadingFrame') : state.status === 'error' ? ' · ' + i18n.text('frameUnavailable') : ''})));
+      if (visible) {
+        const caption = panel.querySelector('figcaption');
+        if (!caption.firstElementChild) caption.append(element('span'), element('strong', '', 'preview-chapter'));
+        write(caption.firstElementChild, ui('frameCaption', () => ({time: time(state.target.seconds),
+          status: state.status === 'cached' ? ' · ' + i18n.text('frameAt', {time: time(state.frameSeconds)})
+            : state.status === 'loading' ? ' · ' + i18n.text('loadingFrame') : state.status === 'error' ? ' · ' + i18n.text('frameUnavailable') : ''})));
+        caption.lastElementChild.hidden = !state.target.caption;
+        write(caption.lastElementChild, state.target.caption);
+      }
     }
     positionPreview();
   },
@@ -67,7 +72,14 @@ function selectFrame(post, video, seconds, caption = '') {
 function selectTimelineFrame() {
   if (!currentVideo || !currentPost || $('timeline').disabled || seeking) return;
   scrubPosition ??= player.position; previewMode = 'timeline';
-  selectFrame(currentPost, currentVideo, Math.floor(scrubPosition));
+  const seconds = Math.floor(scrubPosition);
+  let chapter;
+  for (const block of currentPost.body || []) {
+    if (block.type === 'timecode' && block.videoId === currentVideo.id && Number.isFinite(block.seconds)
+      && block.seconds >= 0 && block.seconds <= seconds && block.seconds < currentVideo.duration
+      && (!chapter || block.seconds > chapter.seconds)) chapter = block;
+  }
+  selectFrame(currentPost, currentVideo, seconds, chapter?.description || '');
 }
 function element(tag, text, className) { const node = document.createElement(tag); if (text) write(node, text); if (className) node.className = className; return node; }
 function message(text, error = false) { statusText = text; write(status, text); status.classList.toggle('error', error); }
