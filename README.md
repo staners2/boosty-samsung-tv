@@ -266,14 +266,17 @@ npm run package
 ```
 
 dist/BoostyTV-unsigned.wgt is for inspection, **not installation**. Put your SDK
-tools on PATH; set TIZEN_PROFILE, TV_SERIAL and SIGNED_WGT to your own profile,
-device serial from `sdb devices`, and the filename printed by the packager.
+tools on PATH; set TIZEN_PROFILE to your own profile and TV_SERIAL to the
+device serial from `sdb devices`. Use absolute packaging paths and rename the
+signed file before installation: the SDK installer does not handle spaces in
+the WGT filename.
 
 ```sh
 sdb connect "$TV_SERIAL"
 sdb devices
-tizen package -t wgt -s "$TIZEN_PROFILE" -- "$PWD/dist/wgt"
-tizen install -s "$TV_SERIAL" -n "$SIGNED_WGT" -- "$PWD/dist/wgt"
+tizen package -t wgt -s "$TIZEN_PROFILE" -o "$PWD/dist" -- "$PWD/dist/wgt"
+cp "$PWD/dist/Boosty TV.wgt" "$PWD/dist/BoostyTV.wgt"
+tizen install -s "$TV_SERIAL" -n BoostyTV.wgt -- "$PWD/dist"
 tizen run -s "$TV_SERIAL" -p BstTV00001.BoostyTV
 ```
 
