@@ -963,6 +963,31 @@ test('player controls hide at exactly five idle seconds without progress extendi
   }
 });
 
+test('a failed progress save does not permanently pin controls after their first hide', async t => {
+  t.mock.timers.enable({apis: ['setTimeout']});
+  for (const browser of [false, true]) {
+    await t.test(browser ? 'browser' : 'native', async () => {
+      const ui = await screen({browser, progressError: true}), panel = ui.document.querySelector('.player-shade');
+      t.mock.timers.tick(5000); await tick();
+      assert.equal(panel.classList.contains('controls-hidden'), true);
+      ui.position(15); await tick();
+      assert.equal(panel.classList.contains('controls-hidden'), false);
+      assert.match(ui.document.getElementById('player-status').textContent, /Позиция просмотра пока не сохранена/);
+      t.mock.timers.tick(4999); await tick();
+      assert.equal(panel.classList.contains('controls-hidden'), false);
+      t.mock.timers.tick(1); await tick();
+      assert.equal(panel.classList.contains('controls-hidden'), true);
+      for (const code of [38, 40, 32]) {
+        await ui.key(code);
+        assert.equal(panel.classList.contains('controls-hidden'), false);
+        t.mock.timers.tick(5000); await tick();
+        assert.equal(panel.classList.contains('controls-hidden'), true);
+      }
+      await ui.close();
+    });
+  }
+});
+
 test('keyboard pointer touch and focus activity restart the five second idle timer', async t => {
   t.mock.timers.enable({apis: ['setTimeout']});
   for (const activity of ['keyboard', 'pointermove', 'pointerdown', 'touchstart', 'wheel', 'focus']) {

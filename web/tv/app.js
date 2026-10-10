@@ -333,12 +333,12 @@ function showPlayerControls() {
   playerPanel.classList.remove('controls-hidden');
   playerPanel.setAttribute('aria-hidden', 'false'); playerPanel.removeAttribute('inert');
   $('timeline').tabIndex = $('quality').tabIndex = 0;
-  if (!choices.open && !playbackError && !seeking && playbackStarted && ['playing', 'paused', 'ended'].includes(player.state)) {
+  if (!choices.open && !seeking && playbackStarted && ['playing', 'paused', 'ended'].includes(player.state)) {
     controlsTimer = setTimeout(hidePlayerControls, 5000);
   }
 }
 function hidePlayerControls() {
-  if ($('playback').hidden || choices.open || playbackError || seeking || !['playing', 'paused', 'ended'].includes(player.state)) return;
+  if ($('playback').hidden || choices.open || seeking || !['playing', 'paused', 'ended'].includes(player.state)) return;
   cancelScrub(); $('playback').focus();
   clearTimeout(controlsTimer); controlsTimer = null;
   playerPanel.classList.add('controls-hidden');
