@@ -80,17 +80,51 @@ test('resume position survives a broker restart and expires exactly 24 hours aft
   assert.equal((await (await fetch(restarted.base + '/reader/api/post/reader/post-1', {headers})).json()).videos[0].timeCode, 0);
 });
 
-test('a fresh Boosty position, including an intentional rewind to zero, takes priority over the cache', async t => {
+test('fresh Boosty positions take priority after confirming the locally saved stop, including a rewind to zero', async t => {
+  let now = 1700000000000;
   const postResponse = structuredClone(previewPost);
-  const app = await start(t, '', {postResponse}); const headers = await authorize(app);
+  const app = await start(t, '', {postResponse, now: () => now}); const headers = await authorize(app);
   await app.post('/api/progress', {videoId: 'playback-42', seconds: 120}, headers);
+  postResponse.data[0].timeCode = 120; now += 1;
+  assert.deepEqual(await (await fetch(app.base + '/api/progress/reader/post-1/playback-42', {headers})).json(), {seconds: 120});
   for (const seconds of [35, 0]) {
+    now += 1;
     postResponse.data[0].timeCode = seconds;
     const response = await fetch(app.base + '/api/progress/reader/post-1/playback-42', {headers});
     assert.equal(response.status, 200); assert.deepEqual(await response.json(), {seconds});
     delete postResponse.data[0].timeCode;
     assert.equal((await (await fetch(app.base + '/api/post/reader/post-1', {headers})).json()).videos[0].timeCode, seconds);
   }
+});
+
+test('an unconfirmed local stop survives stale Boosty positions and a broker restart', async t => {
+  let now = 1700000000000;
+  const postResponse = structuredClone(previewPost); postResponse.data[0].timeCode = 0;
+  const app = await start(t, '', {postResponse, now: () => now}); const headers = await authorize(app);
+  assert.equal((await app.post('/api/progress', {videoId: 'playback-42', seconds: 80}, headers)).status, 200);
+  await app.stop(); now += 1;
+  const restarted = await start(t, '', {vault: app.vault, postResponse, now: () => now});
+  for (const seconds of [0, 35]) {
+    postResponse.data[0].timeCode = seconds; now += 1;
+    for (const path of ['/api/progress/reader/post-1/playback-42', '/api/post/reader/post-1', '/api/feed', '/api/blog/reader']) {
+      const response = await fetch(restarted.base + path, {headers}); assert.equal(response.status, 200);
+      const result = await response.json();
+      assert.equal(result.seconds ?? (result.items?.[0] ?? result).videos[0].timeCode, 80, path);
+    }
+  }
+  delete postResponse.data[0].timeCode;
+  assert.deepEqual(await (await fetch(restarted.base + '/api/progress/reader/post-1/playback-42', {headers})).json(), {seconds: 80});
+});
+
+test('a locally saved rewind to zero cannot be replaced by an older Boosty position', async t => {
+  let now = 1700000000000;
+  const postResponse = structuredClone(previewPost); postResponse.data[0].timeCode = 120;
+  const app = await start(t, '', {postResponse, now: () => now}); const headers = await authorize(app);
+  await app.post('/api/progress', {videoId: 'playback-42', seconds: 80}, headers);
+  now += 1;
+  assert.equal((await app.post('/api/progress', {videoId: 'playback-42', seconds: 0}, headers)).status, 200);
+  now += 1;
+  assert.deepEqual(await (await fetch(app.base + '/api/progress/reader/post-1/playback-42', {headers})).json(), {seconds: 0});
 });
 
 test('cached resume positions are shared only between sessions of the same Boosty account', async t => {
@@ -109,12 +143,13 @@ test('cached resume positions are shared only between sessions of the same Boost
 });
 
 test('progress remains durable when writing to Boosty fails without reporting a successful synchronization', async t => {
-  const app = await start(t, '', {postResponse: structuredClone(previewPost), progressError: new AppError(502, 'upstream_unavailable', 'request_failed')});
+  const postResponse = structuredClone(previewPost); postResponse.data[0].timeCode = 0;
+  const app = await start(t, '', {postResponse, progressError: new AppError(502, 'upstream_unavailable', 'request_failed')});
   const headers = await authorize(app);
   const saved = await app.post('/api/progress', {videoId: 'playback-42', seconds: 80}, headers);
   assert.equal(saved.status, 502);
   await app.stop();
-  const restarted = await start(t, '', {vault: app.vault, postResponse: structuredClone(previewPost)});
+  const restarted = await start(t, '', {vault: app.vault, postResponse});
   assert.deepEqual(await (await fetch(restarted.base + '/api/progress/reader/post-1/playback-42', {headers})).json(), {seconds: 80});
 });
 
@@ -176,7 +211,7 @@ test('a fresh lookup cannot replace the local stop while its persistent save is 
   const response = await fetch(app.base + '/api/progress/reader/post-1/playback-42', {headers});
   const position = await response.json();
   release(); const saved = await saving;
-  assert.deepEqual(position, {seconds: 30});
+  assert.deepEqual(position, {seconds: 37});
   assert.equal(saved.status, 200);
   assert.equal(Object.values((await app.vault.load()).progress)[0].seconds, 37);
 });
@@ -193,19 +228,69 @@ test('a pre-save lookup cannot replace a completed stop in the same clock millis
   const saved = await app.post('/api/progress', {videoId: 'playback-42', seconds: 37}, headers);
   release(); const response = await reading;
   assert.equal(saved.status, 200);
-  assert.deepEqual(await response.json(), {seconds: 30});
+  assert.deepEqual(await response.json(), {seconds: 37});
   assert.equal(Object.values((await app.vault.load()).progress)[0].seconds, 37);
 });
 
-test('feed and blog responses use a cached position only when Boosty omits one', async t => {
+test('a lookup started before confirmation cannot overwrite the confirmed local stop', async t => {
+  let now = 1700000000000, entered, release;
+  const started = new Promise(resolve => {entered = resolve;});
+  const waiting = new Promise(resolve => {release = resolve;});
+  const postResponse = structuredClone(previewPost); postResponse.data[0].timeCode = 0;
+  const postClient = {request: async () => {
+    const response = structuredClone(postResponse);
+    if (response.data[0].timeCode === 0) {entered(); await waiting;}
+    return response;
+  }};
+  const app = await start(t, '', {postResponse, postClient, now: () => now}); const headers = await authorize(app);
+  await app.post('/api/progress', {videoId: 'playback-42', seconds: 80}, headers);
+  const path = app.base + '/api/progress/reader/post-1/playback-42';
+  now += 1; const stale = fetch(path, {headers}); await started;
+  postResponse.data[0].timeCode = 80; now += 1;
+  const confirmed = await (await fetch(path, {headers})).json();
+  now += 1; release(); const late = await (await stale).json();
+  assert.deepEqual(confirmed, {seconds: 80});
+  assert.deepEqual(late, {seconds: 80});
+  assert.equal(Object.values((await app.vault.load()).progress)[0].seconds, 80);
+});
+
+test('a lookup returns a newer local stop saved while its confirmation is being persisted', async t => {
+  let now = 1700000000000, entered, release, blocked = false;
+  const started = new Promise(resolve => {entered = resolve;});
+  const waiting = new Promise(resolve => {release = resolve;});
+  const postResponse = structuredClone(previewPost); postResponse.data[0].timeCode = 80;
+  const app = await start(t, '', {postResponse, now: () => now}); const headers = await authorize(app);
+  await app.post('/api/progress', {videoId: 'playback-42', seconds: 80}, headers);
+  const save = app.vault.save.bind(app.vault);
+  app.vault.save = async data => {
+    const writing = save(data);
+    if (!blocked && Object.values(data.progress).some(entry => entry.seconds === 80 && !entry.unconfirmed)) {
+      blocked = true; entered(); await waiting;
+    }
+    await writing;
+  };
+  now += 1;
+  const reading = fetch(app.base + '/api/progress/reader/post-1/playback-42', {headers}); await started;
+  now += 1;
+  const saved = await app.post('/api/progress', {videoId: 'playback-42', seconds: 90}, headers);
+  release(); const response = await reading;
+  assert.equal(saved.status, 200);
+  assert.deepEqual(await response.json(), {seconds: 90});
+  assert.equal(Object.values((await app.vault.load()).progress)[0].seconds, 90);
+});
+
+test('feed and blog responses use the cache and accept new Boosty positions after confirmation', async t => {
+  let now = 1700000000000;
   const postResponse = structuredClone(previewPost);
-  const app = await start(t, '', {postResponse}); const headers = await authorize(app);
+  const app = await start(t, '', {postResponse, now: () => now}); const headers = await authorize(app);
   await app.post('/api/progress', {videoId: 'playback-42', seconds: 75}, headers);
   for (const path of ['/api/feed', '/api/blog/reader']) {
     const response = await fetch(app.base + path, {headers});
     assert.equal((await response.json()).items[0].videos[0].timeCode, 75);
   }
-  postResponse.data[0].timeCode = 15;
+  postResponse.data[0].timeCode = 75; now += 1;
+  assert.equal((await (await fetch(app.base + '/api/feed', {headers})).json()).items[0].videos[0].timeCode, 75);
+  postResponse.data[0].timeCode = 15; now += 1;
   assert.equal((await (await fetch(app.base + '/api/feed', {headers})).json()).items[0].videos[0].timeCode, 15);
 });
 
@@ -287,6 +372,22 @@ test('saving a new position restarts the 24-hour expiry without extending it on 
   assert.deepEqual(await (await fetch(path, {headers})).json(), {seconds: 0});
 });
 
+test('confirming a local stop does not restart its 24-hour expiry', async t => {
+  let now = 1700000000000;
+  const postResponse = structuredClone(previewPost); postResponse.data[0].timeCode = 0;
+  const app = await start(t, '', {postResponse, now: () => now}); const headers = await authorize(app);
+  await app.post('/api/progress', {videoId: 'playback-42', seconds: 60}, headers);
+  now += 23 * 60 * 60 * 1000;
+  postResponse.data[0].timeCode = 60;
+  const path = app.base + '/api/progress/reader/post-1/playback-42';
+  assert.deepEqual(await (await fetch(path, {headers})).json(), {seconds: 60});
+  now += 30 * 60 * 1000;
+  assert.deepEqual(await (await fetch(path, {headers})).json(), {seconds: 60});
+  delete postResponse.data[0].timeCode;
+  now += 30 * 60 * 1000;
+  assert.deepEqual(await (await fetch(path, {headers})).json(), {seconds: 0});
+});
+
 test('cached positions clamp to a known video duration and invalid updates never enter the cache', async t => {
   const app = await start(t, '', {postResponse: structuredClone(previewPost)}); const headers = await authorize(app);
   await app.post('/api/progress', {videoId: 'playback-42', seconds: 200}, headers);
@@ -302,7 +403,7 @@ test('the persistent cache evicts expired entries and remains bounded across a l
   assert.equal(Object.keys((await app.vault.load()).progress).length, 1000);
   now += 24 * 60 * 60 * 1000;
   await app.post('/api/progress', {videoId: 'playback-42', seconds: 65}, headers);
-  const entries = Object.values((await app.vault.load()).progress);
+  const entries = Object.values((await app.vault.load()).progress).map(({seconds, savedAt}) => ({seconds, savedAt}));
   assert.deepEqual(entries, [{seconds: 65, savedAt: now}]);
 });
 

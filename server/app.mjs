@@ -61,10 +61,20 @@ export async function createApp({ publicUrl, basePath = '', vault, boosty, stati
   function rememberProgress(session, videoId, seconds, readStarted = Infinity) {
     if (!identifier(videoId) || !Number.isFinite(seconds) || seconds < 0 || seconds > 604800) return false;
     const key = progressKey(session, videoId), previous = data.progress[key];
-    if (readStarted !== Infinity && progressUpdates.has(key)) return false;
-    if (validProgress(previous) && previous.savedAt >= readStarted) return false;
-    const entry = {seconds: Math.floor(seconds), savedAt: now()};
-    if (previous?.seconds === entry.seconds && previous.savedAt === entry.savedAt) return false;
+    const local = readStarted === Infinity, previousValid = validProgress(previous);
+    seconds = Math.floor(seconds);
+    if (!local && progressUpdates.has(key)) return false;
+    if (!local && previousValid && (previous.savedAt >= readStarted || previous.confirmedAt >= readStarted
+      || (previous.unconfirmed && previous.seconds !== seconds))) return false;
+    const samePosition = !local && previousValid && previous.seconds === seconds;
+    const entry = {seconds, savedAt: samePosition ? previous.savedAt : now()};
+    if (local) entry.unconfirmed = true;
+    else if (samePosition) {
+      const confirmedAt = previous.unconfirmed ? now() : previous.confirmedAt;
+      if (confirmedAt !== undefined) entry.confirmedAt = confirmedAt;
+    }
+    if (previous?.seconds === entry.seconds && previous.savedAt === entry.savedAt
+      && previous.unconfirmed === entry.unconfirmed && previous.confirmedAt === entry.confirmedAt) return false;
     data.progress[key] = entry;
     return true;
   }
@@ -77,12 +87,14 @@ export async function createApp({ publicUrl, basePath = '', vault, boosty, stati
     let changed = false;
     for (const post of posts) for (const video of post.videos) {
       if (video.timeCode !== null) changed = rememberProgress(session, video.id, video.timeCode, readStarted) || changed;
-      else {
-        const seconds = cachedProgress(session, video.id) ?? 0;
-        video.timeCode = video.duration > 0 ? Math.min(seconds, video.duration) : seconds;
-      }
     }
     if (changed) {pruneProgress(); await persist();}
+    for (const post of posts) for (const video of post.videos) {
+      const seconds = cachedProgress(session, video.id);
+      if (seconds !== undefined) {
+        video.timeCode = video.duration > 0 ? Math.min(seconds, video.duration) : seconds;
+      } else if (video.timeCode === null) video.timeCode = 0;
+    }
   }
   const headers = {
     'cache-control': 'no-store', 'x-content-type-options': 'nosniff',

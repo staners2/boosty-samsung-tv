@@ -23,11 +23,14 @@ description for the selected position. Narrow gaps separate the chapter segments
 on the timeline.
 
 Resume positions are cached in the broker's encrypted persistent storage per
-Boosty account and video for up to 24 hours. A fresh Boosty position, including
-zero, takes priority; the cache is used when the position is missing or Boosty
-is temporarily unavailable. Pausing, ending or closing playback saves the current
-position. Cached reads do not extend expiry, and the cache keeps at most 1,000
-positions. Videos themselves are not cached for offline playback.
+Boosty account and video for up to 24 hours. Pausing, ending or closing playback
+saves the current position locally before sending it to Boosty. Until Boosty
+returns the same position, the local stop takes priority over older responses,
+even if synchronization fails or the broker restarts. Once confirmed, new Boosty
+positions, including a rewind to zero, take priority. The cache is also used when
+Boosty omits the position or is temporarily unavailable. Reads and confirmation
+do not extend the local stop's expiry; the cache keeps at most 1,000 positions.
+Videos themselves are not cached for offline playback.
 
 English is the first-run language. Use **EN / RU** in the main screen or
 phone page. Your explicit choice is saved locally. Creator content is not translated.
