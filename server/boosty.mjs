@@ -40,7 +40,7 @@ export class BoostyClient {
       if (response.status === 429) throw new AppError(429, 'boosty_rate_limit', 'error_boosty_rate_limit_29');
       if (response.status === 400) throw new AppError(400, 'boosty_rejected', 'error_boosty_rejected_30');
       if (response.status === 403) throw new AppError(403, 'boosty_forbidden', 'error_boosty_forbidden_31');
-      throw new AppError(502, 'boosty_error', 'error_boosty_error_32');
+      throw new AppError(response.status >= 400 && response.status < 500 ? response.status : 502, 'boosty_error', 'error_boosty_error_32');
     }
     if (response.status === 204) return null;
     try {const value = await response.json(); signal?.throwIfAborted(); return value;}

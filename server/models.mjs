@@ -27,12 +27,13 @@ function normalizeVideo(raw) {
     sources.set(quality, { quality, label: qualities[quality][0], url });
   }
   if (!sources.size) return null;
+  const timeCode = typeof raw.timeCode === 'number' || (typeof raw.timeCode === 'string' && raw.timeCode.trim()) ? Number(raw.timeCode) : NaN;
   return {
     id: String(raw.vid), title: String(raw.title ?? ''),
     contentId: raw.id == null || String(raw.id) === '' ? null : String(raw.id),
     preview: httpsUrl(raw.preview) ?? httpsUrl(raw.defaultPreview),
     duration: Math.max(0, Number(raw.duration) || 0),
-    timeCode: Math.max(0, Number(raw.timeCode) || 0),
+    timeCode: Number.isFinite(timeCode) && timeCode >= 0 ? timeCode : null,
     sources: [...sources.values()].sort((a, b) => qualities[a.quality][1] - qualities[b.quality][1]),
   };
 }

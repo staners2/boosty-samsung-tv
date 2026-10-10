@@ -2,6 +2,14 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { normalizePosts, normalizeSubscriptions, selectPreviewSource } from '../server/models.mjs';
 
+test('video progress distinguishes a missing or invalid position from an explicit Boosty zero', () => {
+  for (const [value, expected] of [[undefined, null], [null, null], ['', null], [false, null], [-1, null], [Infinity, null], ['invalid', null], [0, 0], ['0', 0], [35, 35], ['35', 35], [0.5, 0.5]]) {
+    const video = normalizePosts({data: [{id: 'post', hasAccess: true, data: [{type: 'ok_video', vid: 'video', timeCode: value,
+      playerUrls: [{type: 'high', url: 'https://cdn.example/video.mp4'}]}]}]}).items[0].videos[0];
+    assert.equal(video.timeCode, expected, String(value));
+  }
+});
+
 test('preview preserves content identity and selects the smallest progressive source', () => {
   for (const rawId of ['content-17', 17, null, undefined]) {
     const [video] = normalizePosts({data: [{id: 'post-1', hasAccess: true, data: [

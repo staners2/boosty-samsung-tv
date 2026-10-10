@@ -19,10 +19,25 @@ number and access to the desired posts**. The app does not bypass subscriptions.
 
 Navigate video chapters and select a timeline position with frame previews.
 When a post contains timecoded chapter descriptions, the timeline also shows the
-description for the selected position.
+description for the selected position. Narrow gaps separate the chapter segments
+on the timeline.
 
-English is the first-run language. Use **EN / RU** in the main screen, player or
+Resume positions are cached in the broker's encrypted persistent storage per
+Boosty account and video for up to 24 hours. A fresh Boosty position, including
+zero, takes priority; the cache is used when the position is missing or Boosty
+is temporarily unavailable. Pausing, ending or closing playback saves the current
+position. Cached reads do not extend expiry, and the cache keeps at most 1,000
+positions. Videos themselves are not cached for offline playback.
+
+English is the first-run language. Use **EN / RU** in the main screen or
 phone page. Your explicit choice is saved locally. Creator content is not translated.
+
+The player controls slide out after five seconds of inactivity and return when
+you use the remote, keyboard or pointer. Use **OK / Space** while the video is
+focused, a media key or a click on the video to pause or continue. Press **Up** to
+focus the timeline, **Left / Right** to select a position and **OK** to seek.
+**Back / Esc** cancels a pending selection, then closes the player. The gear
+opens video quality; its menu stays visible until you close it.
 
 ## Screenshots
 
@@ -48,7 +63,7 @@ flowchart LR
   TV["Samsung TV / PC browser"] -->|"cookie + device proof"| Broker["Your Node.js broker"]
   Phone["Phone: scan pairing QR"] -->|"linked phone + Boosty code"| Broker
   Broker -->|"verification + profile + posts"| Boosty["Boosty API"]
-  Broker --> Vault["Encrypted sessions on persistent storage"]
+  Broker --> Vault["Encrypted sessions and resume positions on persistent storage"]
   Key["Separate persistent 32-byte key"] --> Broker
   Broker -->|"validated media source"| Frames["FFmpeg: bounded JPEG preview"]
   Frames -->|"frame cache"| TV

@@ -23,7 +23,7 @@
       <footer>Arrows — select · OK — open · Back — return</footer>
     </main>
   </div>
-  <section id="playback" hidden aria-label="Video player">
+  <section id="playback" hidden tabindex="-1" aria-label="Video player">
     <object id="native-video" type="application/avplayer"></object>
     <video id="browser-video" playsinline></video>
     <div class="player-shade">
@@ -31,15 +31,13 @@
       <p id="player-status" role="status"></p>
       <div class="timeline-track">
         <figure id="timeline-preview" class="frame-preview" hidden><img alt="Frame at selected time" hidden><figcaption></figcaption></figure>
+        <div id="timeline-segments" class="timeline-segments" aria-hidden="true"></div>
         <input id="timeline" type="range" min="0" max="0" step="1" value="0" aria-label="Video position" disabled>
       </div>
       <div class="player-controls">
-        <button id="player-language" aria-label="Language">EN / RU</button><span id="time">0:00</span>
-        <button id="toggle">Pause</button>
-        <button id="quality">Quality</button>
-        <button id="close-player">Close</button>
+        <span id="time">0:00</span>
+        <button id="quality" aria-label="Quality" title="Quality"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><path d="M10 2h4l.7 3 2.2 1.3 2.9-.8 2 3.5-2.2 2v2l2.2 2-2 3.5-2.9-.8-2.2 1.3-.7 3h-4l-.7-3-2.2-1.3-2.9.8-2-3.5 2.2-2v-2l-2.2-2 2-3.5 2.9.8L9.3 5 10 2Z"/><circle cx="12" cy="12" r="3"/></svg></button>
       </div>
-      <p class="key-hint">↑ timeline · ← → choose time · OK seek · ↓ controls · Back cancel / close</p>
     </div>
   </section>
   <dialog id="choices"><h2 id="choices-title"></h2><div id="choices-content"></div><button id="close-choices">Back</button></dialog>

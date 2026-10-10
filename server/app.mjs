@@ -11,6 +11,8 @@ import { httpsUrl, normalizePosts, normalizeSubscriptions } from './models.mjs';
 import { publicOrigin, mountPath } from './config.mjs';
 
 const sessionDuration = 180 * 86400000;
+const progressDuration = 24 * 60 * 60 * 1000;
+const progressLimit = 1000;
 const cookieName = 'boostytv';
 const digest = value => createHash('sha256').update(value).digest('hex');
 const identifier = value => typeof value === 'string' && /^[\w.-]{1,160}$/.test(value);
@@ -44,7 +46,44 @@ export async function createApp({ publicUrl, basePath = '', vault, boosty, stati
   const pairing = new Pairing({ now });
   const api = boosty ?? new BoostyClient({ now, onUpdate: () => vault.save(data) });
   const rate = new Map();
+  const progressUpdates = new Map();
   const persist = () => vault.save(data);
+  if (!data.progress || typeof data.progress !== 'object' || Array.isArray(data.progress)) data.progress = {};
+  const progressKey = (session, videoId) => `${digest(session.profile.id)}:${videoId}`;
+  function validProgress(entry) {
+    return entry && Number.isSafeInteger(entry.seconds) && entry.seconds >= 0 && entry.seconds <= 604800
+      && Number.isFinite(entry.savedAt) && entry.savedAt <= now() && now() - entry.savedAt < progressDuration;
+  }
+  function cachedProgress(session, videoId) {
+    const entry = data.progress[progressKey(session, videoId)];
+    return validProgress(entry) ? entry.seconds : undefined;
+  }
+  function rememberProgress(session, videoId, seconds, readStarted = Infinity) {
+    if (!identifier(videoId) || !Number.isFinite(seconds) || seconds < 0 || seconds > 604800) return false;
+    const key = progressKey(session, videoId), previous = data.progress[key];
+    if (readStarted !== Infinity && progressUpdates.has(key)) return false;
+    if (validProgress(previous) && previous.savedAt >= readStarted) return false;
+    const entry = {seconds: Math.floor(seconds), savedAt: now()};
+    if (previous?.seconds === entry.seconds && previous.savedAt === entry.savedAt) return false;
+    data.progress[key] = entry;
+    return true;
+  }
+  function pruneProgress() {
+    for (const [key, entry] of Object.entries(data.progress)) if (!validProgress(entry)) delete data.progress[key];
+    const entries = Object.entries(data.progress).sort((a, b) => b[1].savedAt - a[1].savedAt);
+    for (const [key] of entries.slice(progressLimit)) delete data.progress[key];
+  }
+  async function applyProgress(posts, session, readStarted) {
+    let changed = false;
+    for (const post of posts) for (const video of post.videos) {
+      if (video.timeCode !== null) changed = rememberProgress(session, video.id, video.timeCode, readStarted) || changed;
+      else {
+        const seconds = cachedProgress(session, video.id) ?? 0;
+        video.timeCode = video.duration > 0 ? Math.min(seconds, video.duration) : seconds;
+      }
+    }
+    if (changed) {pruneProgress(); await persist();}
+  }
   const headers = {
     'cache-control': 'no-store', 'x-content-type-options': 'nosniff',
     'referrer-policy': 'no-referrer', 'x-frame-options': 'DENY',
@@ -211,9 +250,14 @@ export async function createApp({ publicUrl, basePath = '', vault, boosty, stati
         const query = new URLSearchParams({ limit: '30', comments_limit: '0', reply_limit: '0' });
         if (offset) query.set('offset', offset);
         const resource = blogRoute ? `v1/blog/${blogRoute[1]}/post/` : 'v1/feed/post/';
-        send(200, normalizePosts(await api.request(session, `${resource}?${query}`, {userAgent: request.headers['user-agent']}))); return;
+        const readStarted = now();
+        const result = normalizePosts(await api.request(session, `${resource}?${query}`, {userAgent: request.headers['user-agent']}));
+        await applyProgress(result.items, session, readStarted);
+        if (data.sessions[sessionKey] !== session || session.validUntil <= now()) throw new AppError(401, 'reconnect', 'error_reconnect_17');
+        send(200, result); return;
       }
       const postRoute = path.match(/^\/api\/post\/([\w.-]{1,80})\/([\w.-]{1,160})$/);
+      const progressRoute = path.match(/^\/api\/progress\/([\w.-]{1,80})\/([\w.-]{1,160})\/([\w.-]{1,160})$/);
       const previewRoute = path.match(/^\/api\/preview\/([\w.-]{1,80})\/([\w.-]{1,160})\/([\w.-]{1,160})$/);
       if (request.method === 'GET' && previewRoute) {
         const value = url.searchParams.get('seconds'), seconds = Number(value);
@@ -240,11 +284,27 @@ export async function createApp({ publicUrl, basePath = '', vault, boosty, stati
           send(200, frame); return;
         } finally {response.removeListener('close', disconnected);}
       }
-      if (request.method === 'GET' && postRoute) {
-        const raw = await api.request(session, `v1/blog/${postRoute[1]}/post/${postRoute[2]}?comments_limit=0&reply_limit=0`,
-          {userAgent: request.headers['user-agent']});
+      if (request.method === 'GET' && (postRoute || progressRoute)) {
+        const target = postRoute || progressRoute, readStarted = now();
+        let raw;
+        try {
+          raw = await api.request(session, `v1/blog/${target[1]}/post/${target[2]}?comments_limit=0&reply_limit=0`,
+            {userAgent: request.headers['user-agent']});
+        } catch (error) {
+          if (data.sessions[sessionKey] !== session || session.validUntil <= now()) throw new AppError(401, 'reconnect', 'error_reconnect_17');
+          const seconds = progressRoute ? cachedProgress(session, target[3]) : undefined;
+          if (seconds === undefined || !(error instanceof AppError) || !(error.status === 408 || error.status === 429 || (error.status >= 500 && error.status < 600))) throw error;
+          send(200, {seconds}); return;
+        }
+        if (data.sessions[sessionKey] !== session || session.validUntil <= now()) throw new AppError(401, 'reconnect', 'error_reconnect_17');
         const post = normalizePosts({ data: [raw] }).items[0];
         if (!post) throw new AppError(404, 'post_missing', 'error_post_missing_24');
+        if (progressRoute && post.locked) throw new AppError(403, 'progress_forbidden', 'error_post_missing_24');
+        const video = progressRoute ? post.videos.find(video => video.id === target[3]) : null;
+        if (progressRoute && !video) throw new AppError(404, 'video_missing', 'error_post_missing_24');
+        await applyProgress([post], session, readStarted);
+        if (data.sessions[sessionKey] !== session || session.validUntil <= now()) throw new AppError(401, 'reconnect', 'error_reconnect_17');
+        if (progressRoute) {send(200, {seconds: video.timeCode}); return;}
         send(200, post); return;
       }
       if (request.method === 'POST' && path === '/api/progress') {
@@ -252,9 +312,19 @@ export async function createApp({ publicUrl, basePath = '', vault, boosty, stati
         if (!identifier(body.videoId) || !Number.isSafeInteger(body.seconds) || body.seconds < 0 || body.seconds > 604800) {
           throw new AppError(400, 'invalid_progress', 'error_invalid_progress_25');
         }
-        await api.request(session, `v1/viewstat/video/${body.videoId}/timecode/`, {
+        rememberProgress(session, body.videoId, body.seconds); pruneProgress();
+        const key = progressKey(session, body.videoId);
+        const update = () => api.request(session, `v1/viewstat/video/${body.videoId}/timecode/`, {
           method: 'PUT', body: new URLSearchParams({ time_code: String(body.seconds) }),
         });
+        const previous = progressUpdates.get(key);
+        const pending = (async () => {
+          await persist();
+          return previous ? previous.then(update, update) : update();
+        })();
+        progressUpdates.set(key, pending);
+        try {await pending;}
+        finally {if (progressUpdates.get(key) === pending) progressUpdates.delete(key);}
         send(200, { ok: true }); return;
       }
       throw new AppError(404, 'not_found', 'error_not_found_16');

@@ -23,8 +23,12 @@ function rememberProof(value) {
 }
 const $ = id => document.getElementById(id);
 const content = $('content'), status = $('status'), choices = $('choices');
-let profile, pair, pollTimer, route, activePage, currentVideo, lastSaved = -1, progressBusy = false, returnPosition, pageObserver;
+const playerPanel = document.querySelector('.player-shade');
+let profile, pair, pollTimer, route, activePage, currentVideo, lastSaved = -1, progressBusy = 0, returnPosition, pageObserver;
 let scrubPosition = null, seeking = false, playbackError = '', currentPost, previewMode;
+let timelineVideo, timelinePost, timelineDuration, timelineSegments = [];
+let playbackRequest, playbackStarted = false;
+let controlsTimer;
 const stack = [];
 let titleText = ui('welcome'), statusText = '';
 function title(value) {titleText = value; write($('title'), value);}
@@ -83,7 +87,7 @@ function selectTimelineFrame() {
 }
 function element(tag, text, className) { const node = document.createElement(tag); if (text) write(node, text); if (className) node.className = className; return node; }
 function message(text, error = false) { statusText = text; write(status, text); status.classList.toggle('error', error); }
-function action(task) { return async () => { try { await task(); } catch (error) { if (error.status === 401) { await closePlayer(); await connect(); } else if (!$('playback').hidden) { playbackError = errorText(error); write($('player-status'), playbackError); } else message(errorText(error), true); } }; }
+function action(task) { return async () => { try { await task(); } catch (error) { if (error.status === 401) { await closePlayer(); await connect(); } else if (!$('playback').hidden) { playbackError = errorText(error); write($('player-status'), playbackError); showPlayerControls(); } else message(errorText(error), true); } }; }
 function button(label, task, className) {
   const node = element('button', label, className);
   node.addEventListener('click', action(async () => { node.focus({preventScroll: true}); await task(); }));
@@ -261,7 +265,7 @@ async function navigate(next, remember = true) {
         if (article.childNodes.length) grid.append(reader);
         const videoList = element('div', '', 'post-videos'); grid.append(videoList);
         result.videos.forEach(video => {
-          const node = button('', () => startVideo(video, video.timeCode, result), 'video-row');
+          const node = button('', () => startVideo(video, undefined, result), 'video-row');
           const copy = element('div'); copy.append(element('h2', video.title || result.title), element('p', video.timeCode ? ui('resumeAt', {duration: time(video.duration), position: time(video.timeCode)}) : time(video.duration)));
           node.append(image(video.preview), copy); videoList.append(node);
         }); count = 1;
@@ -321,6 +325,29 @@ function choose(title, items) {
   clearPreview({keepCache: !$('playback').hidden});
   write($('choices-title'), title); $('choices-content').replaceChildren(...items);
   choices.showModal(); focusFirst($('choices-content'));
+  showPlayerControls();
+}
+function showPlayerControls() {
+  clearTimeout(controlsTimer); controlsTimer = null;
+  if ($('playback').hidden) return;
+  playerPanel.classList.remove('controls-hidden');
+  playerPanel.setAttribute('aria-hidden', 'false'); playerPanel.removeAttribute('inert');
+  $('timeline').tabIndex = $('quality').tabIndex = 0;
+  if (!choices.open && !playbackError && !seeking && playbackStarted && ['playing', 'paused', 'ended'].includes(player.state)) {
+    controlsTimer = setTimeout(hidePlayerControls, 5000);
+  }
+}
+function hidePlayerControls() {
+  if ($('playback').hidden || choices.open || playbackError || seeking || !['playing', 'paused', 'ended'].includes(player.state)) return;
+  cancelScrub(); $('playback').focus();
+  clearTimeout(controlsTimer); controlsTimer = null;
+  playerPanel.classList.add('controls-hidden');
+  playerPanel.setAttribute('aria-hidden', 'true'); playerPanel.setAttribute('inert', '');
+  $('timeline').tabIndex = $('quality').tabIndex = -1;
+}
+function setQuality(source) {
+  const label = ui('qualityValue', () => ({value: source.quality === 'hls' ? i18n.text('auto') : source.label}));
+  for (const attribute of ['aria-label', 'title']) write($('quality'), label, attribute);
 }
 const player = new Player({
   avplay: globalThis.webapis?.avplay, video: $('browser-video'), width: innerWidth, height: innerHeight,
@@ -330,18 +357,45 @@ const player = new Player({
   },
   onState: state => {
     if (['loading', 'closed'].includes(state)) { clearPreview({keepCache: true}); playbackError = ''; scrubPosition = null; }
+    if (state === 'closed') playbackStarted = false;
+    if (['playing', 'paused', 'ended'].includes(state)) playbackStarted = true;
     write($('player-status'), playbackError || ({loading: ui('openingVideo'), buffering: ui('buffering'), paused: ui('pause'), ended: ui('ended'), playing: '', closed: '', error: ui('playError')})[state] || '');
-    write($('toggle'), state === 'paused' ? ui('continue') : ui('pause'));
-    $('timeline').disabled = !['playing', 'paused', 'ended'].includes(state) || player.duration <= 0;
+    $('quality').disabled = !['playing', 'paused', 'ended'].includes(state);
+    $('timeline').disabled = !['playing', 'paused', 'ended'].includes(state) || !Number.isFinite(player.duration) || player.duration <= 0;
     updateTimeline();
+    if (['paused', 'ended'].includes(state)) saveProgress(true);
   },
-  onError: error => { playbackError = errorText(error); write($('player-status'), playbackError); },
+  onError: error => { playbackError = errorText(error); write($('player-status'), playbackError); showPlayerControls(); },
 });
 function updateTimeline() {
   const seconds = scrubPosition ?? player.position;
-  $('time').textContent = `${time(seconds)} / ${time(player.duration)}`;
-  $('timeline').max = Math.floor(player.duration); $('timeline').value = seconds;
-  write($('timeline'), ui('timeOf', {position: time(seconds), duration: time(player.duration)}), 'aria-valuetext');
+  const duration = Number.isFinite(player.duration) && player.duration > 0 && !['loading', 'closed'].includes(player.state) ? player.duration : 0;
+  $('time').textContent = `${time(seconds)} / ${time(duration)}`;
+  $('timeline').max = Math.floor(duration); $('timeline').value = seconds;
+  write($('timeline'), ui('timeOf', {position: time(seconds), duration: time(duration)}), 'aria-valuetext');
+  updateTimelineSegments(seconds, duration);
+}
+function updateTimelineSegments(seconds, duration) {
+  const track = $('timeline-segments');
+  if (timelineVideo !== currentVideo || timelinePost !== currentPost || timelineDuration !== duration) {
+    const chapters = (currentPost?.body || []).filter(block => block.type === 'timecode' && block.videoId === currentVideo?.id
+      && Number.isFinite(block.seconds) && block.seconds > 0 && block.seconds < duration).map(block => block.seconds);
+    const boundaries = [0, ...[...new Set(chapters)].sort((a, b) => a - b), duration];
+    timelineSegments = boundaries.slice(1).map((end, index) => {
+      const start = boundaries[index], segment = element('span', '', 'timeline-segment');
+      segment.style.left = `${duration > 0 ? start / duration * 100 : 0}%`;
+      segment.style.width = `${duration > 0 ? (end - start) / duration * 100 : 100}%`;
+      const background = element('span', '', 'timeline-segment-track'), fill = element('span', '', 'timeline-segment-fill');
+      background.append(fill); segment.append(background);
+      return {start, end, segment, fill};
+    });
+    track.replaceChildren(...timelineSegments.map(item => item.segment));
+    timelineVideo = currentVideo; timelinePost = currentPost; timelineDuration = duration;
+  }
+  track.classList.toggle('disabled', $('timeline').disabled);
+  for (const {start, end, fill} of timelineSegments) {
+    fill.style.width = `${end > start && Number.isFinite(seconds) ? Math.max(0, Math.min(100, (seconds - start) / (end - start) * 100)) : 0}%`;
+  }
 }
 function cancelScrub() { clearPreview({keepCache: true}); scrubPosition = null; updateTimeline(); }
 async function commitScrub() {
@@ -350,58 +404,76 @@ async function commitScrub() {
   const seconds = scrubPosition; scrubPosition = null; seeking = true; playbackError = '';
   $('timeline').setAttribute('aria-busy', 'true'); write($('player-status'), ui('seek'));
   try { await player.seek(seconds, {absolute: true}); write($('player-status'), player.state === 'paused' ? ui('pause') : ''); }
-  finally { seeking = false; $('timeline').removeAttribute('aria-busy'); updateTimeline(); }
+  finally { seeking = false; $('timeline').removeAttribute('aria-busy'); updateTimeline(); showPlayerControls(); }
 }
 async function saveProgress(force = false) {
-  if (!currentVideo || progressBusy || (!force && Math.abs(player.position - lastSaved) < 15)) return;
+  if (!currentVideo || !playbackStarted || !Number.isFinite(player.position) || (!force && (progressBusy > 0 || Math.abs(player.position - lastSaved) < 15))) return;
   const videoId = currentVideo.id, seconds = Math.floor(player.position);
-  progressBusy = true;
-  const video = currentVideo;
-  try { await api.post('/api/progress', {videoId, seconds}); video.timeCode = seconds; if (currentVideo?.id === videoId) lastSaved = seconds; }
-  catch { write($('player-status'), ui('progressUnsaved')); }
-  finally { progressBusy = false; }
+  const video = currentVideo, request = playbackRequest;
+  progressBusy++; video.timeCode = seconds; lastSaved = seconds;
+  try { await api.post('/api/progress', {videoId, seconds}); }
+  catch { if (currentVideo === video && playbackRequest === request) { playbackError = ui('progressUnsaved'); write($('player-status'), playbackError); showPlayerControls(); } }
+  finally { progressBusy--; }
 }
-async function startVideo(video, seconds = video.timeCode, post) {
+async function startVideo(video, seconds, post) {
+  playbackRequest?.abort();
+  const request = playbackRequest = new AbortController();
   clearPreview({keepCache: true}); currentPost = post;
   returnPosition = capturePosition();
-  currentVideo = video; lastSaved = -1; scrubPosition = null; playbackError = '';
+  currentVideo = video; playbackStarted = false; lastSaved = -1; scrubPosition = null; playbackError = '';
   $('playback').hidden = false; $('video-title').textContent = video.title;
   $('native-video').hidden = !globalThis.webapis?.avplay; $('browser-video').hidden = Boolean(globalThis.webapis?.avplay);
-  $('toggle').focus();
+  $('timeline').disabled = $('quality').disabled = true;
+  write($('player-status'), ui('openingVideo')); updateTimeline();
+  showPlayerControls(); $('playback').focus();
   const hlsSupported = globalThis.webapis?.avplay || $('browser-video').canPlayType('application/vnd.apple.mpegurl');
   const source = (hlsSupported && video.sources.find(item => item.quality === 'hls'))
     || video.sources.find(item => item.quality === 'full_hd')
     || video.sources.find(item => !['hls', 'dash'].includes(item.quality)) || video.sources[0];
-  write($('quality'), ui('qualityValue', () => ({value: source.quality === 'hls' ? i18n.text('auto') : source.label})));
-  try { await player.open(source, seconds); }
-  catch (error) { write($('player-status'), errorText(error)); }
+  setQuality(source);
+  try {
+    if (seconds === undefined) {
+      const result = await api.get(`/api/progress/${encodeURIComponent(post.blog)}/${encodeURIComponent(post.id)}/${encodeURIComponent(video.id)}`, {}, {signal: request.signal});
+      if (!Number.isFinite(result?.seconds) || result.seconds < 0) throw Object.assign(new Error(messages.en.invalid_response), {messageKey: 'invalid_response'});
+      seconds = result.seconds;
+    }
+    if (request.signal.aborted || playbackRequest !== request || $('playback').hidden) return;
+    lastSaved = Math.floor(seconds);
+    await player.open(source, seconds);
+    if (!request.signal.aborted && playbackRequest === request) { showPlayerControls(); $('playback').focus(); }
+  }
+  catch (error) {
+    if (request.signal.aborted || playbackRequest !== request) return;
+    if (error.status === 401) throw error;
+    playbackError = errorText(error); write($('player-status'), playbackError); showPlayerControls();
+  }
 }
 async function closePlayer() {
   if ($('playback').hidden) return;
+  clearTimeout(controlsTimer); controlsTimer = null;
   clearPreview({keepCache: true}); currentPost = null;
   const saving = saveProgress(true);
+  playbackRequest?.abort(); playbackRequest = null;
   const closing = player.close(); currentVideo = null;
   $('playback').hidden = true; choices.close(); restorePosition(returnPosition); returnPosition = null;
   await Promise.all([closing, saving]);
 }
-$('toggle').onclick = action(() => player.toggle());
-$('timeline').oninput = () => { if (!seeking) { scrubPosition = Number($('timeline').value); selectTimelineFrame(); } updateTimeline(); };
+$('timeline').oninput = () => { showPlayerControls(); if (!seeking) { scrubPosition = Number($('timeline').value); selectTimelineFrame(); } updateTimeline(); };
 $('timeline').onchange = action(commitScrub);
-$('close-player').onclick = action(closePlayer);
 $('quality').onclick = () => choose(ui('videoQuality'), currentVideo.sources.map(source => button(source.quality === 'hls' ? ui('auto') : source.label, async () => {
-  choices.close(); write($('quality'), ui('qualityValue', () => ({value: source.quality === 'hls' ? i18n.text('auto') : source.label})));
+  choices.close(); setQuality(source);
   const seconds = player.position, paused = player.state === 'paused';
-  try { await player.open(source, seconds, paused); } catch (error) { write($('player-status'), errorText(error)); }
-  $('quality').focus();
+  try { await player.open(source, seconds, paused); } catch (error) { playbackError = errorText(error); write($('player-status'), playbackError); }
+  showPlayerControls(); if ($('quality').disabled) $('playback').focus(); else $('quality').focus();
 })));
-$('close-choices').onclick = () => { choices.close(); if (!$('playback').hidden) $('quality').focus(); else focusFirst(); };
+$('close-choices').onclick = () => { choices.close(); if (!$('playback').hidden) { showPlayerControls(); $('quality').focus(); } else focusFirst(); };
 $('feed').onclick = action(() => { stack.length = 0; return navigate({kind: 'feed'}, false); });
 $('authors').onclick = action(() => { stack.length = 0; return navigate({kind: 'authors'}, false); });
 $('logout').onclick = () => choose(ui('logoutQuestion'), [button(ui('logout'), async () => { await api.post('/api/logout'); rememberProof(''); choices.close(); await connect(); })]);
 
 async function back() {
   clearPreview({keepCache: choices.open || !$('playback').hidden});
-  if (choices.open) { choices.close(); focusFirst(!$('playback').hidden ? $('playback') : content); return; }
+  if (choices.open) { choices.close(); if (!$('playback').hidden) { showPlayerControls(); $('quality').focus(); } else focusFirst(); return; }
   if (!$('playback').hidden) { if (scrubPosition !== null) cancelScrub(); else await closePlayer(); return; }
   if (stack.length) {
     pageObserver?.disconnect();
@@ -413,21 +485,23 @@ async function back() {
 }
 document.addEventListener('keydown', event => {
   const code = event.keyCode;
+  if (!$('playback').hidden) showPlayerControls();
   if ([10009, 27].includes(code)) { event.preventDefault(); action(back)(); return; }
   if (!$('playback').hidden && !choices.open) {
     if ([415, 19, 10252, 32].includes(code)) { event.preventDefault(); action(() => player.toggle())(); return; }
     if ([412, 417].includes(code)) { event.preventDefault(); action(() => player.seek(code === 412 ? -10 : 10))(); return; }
     if (code === 413) { event.preventDefault(); action(closePlayer)(); return; }
     if (code === 38 && !$('timeline').disabled) { $('timeline').focus(); event.preventDefault(); return; }
-    if (document.activeElement === $('timeline')) {
-      if ([37, 39].includes(code)) {
-        event.preventDefault();
-        if (!seeking && !$('timeline').disabled) { scrubPosition = player.clamp((scrubPosition ?? player.position) + (code === 37 ? -10 : 10)); updateTimeline(); selectTimelineFrame(); }
-        return;
-      }
-      if (code === 13) { event.preventDefault(); action(commitScrub)(); return; }
-      if (code === 40) { event.preventDefault(); cancelScrub(); $('toggle').focus(); return; }
+    if ([37, 39].includes(code) && !$('timeline').disabled) {
+      event.preventDefault(); $('timeline').focus();
+      if (!seeking) { scrubPosition = player.clamp((scrubPosition ?? player.position) + (code === 37 ? -10 : 10)); updateTimeline(); selectTimelineFrame(); }
+      return;
     }
+    if (code === 40 && !$('quality').disabled) { event.preventDefault(); cancelScrub(); $('quality').focus(); return; }
+    if (document.activeElement === $('timeline')) {
+      if (code === 13) { event.preventDefault(); action(commitScrub)(); return; }
+    }
+    if (code === 13) { event.preventDefault(); if (document.activeElement === $('quality')) $('quality').onclick(); else action(() => player.toggle())(); return; }
   }
   const direction = {37: 'left', 38: 'up', 39: 'right', 40: 'down'}[code];
   if (!direction) return;
@@ -446,12 +520,18 @@ document.addEventListener('keydown', event => {
   if (controls[index]) { controls[index].focus(); controls[index].scrollIntoView({block: 'nearest', inline: 'nearest'}); }
 });
 document.addEventListener('focusin', event => {
+  if (!$('playback').hidden) showPlayerControls();
   if (event.target === $('timeline')) selectTimelineFrame();
   else if (!event.target.classList.contains('post-timecode')) {
     if (previewMode === 'timeline') cancelScrub(); else clearPreview({keepCache: true});
   }
 });
 $('timeline').addEventListener('blur', cancelScrub);
+for (const type of ['pointermove', 'pointerdown', 'touchstart', 'wheel']) $('playback').addEventListener(type, showPlayerControls, {passive: true});
+$('playback').addEventListener('click', event => {
+  showPlayerControls();
+  if (!playerPanel.contains(event.target)) action(() => player.toggle())();
+});
 window.addEventListener('resize', positionPreview);
 document.addEventListener('visibilitychange', () => {
   if (document.hidden) { clearPreview(); clearTimeout(pollTimer); action(closePlayer)(); }
@@ -465,12 +545,12 @@ for (const [selector, key, attribute] of [
   ['#feed', 'feed'], ['#authors', 'authors'], ['#logout', 'logout'], ['.eyebrow', 'cinema'],
   ['nav', 'mainMenu', 'aria-label'], ['#content', 'content', 'aria-label'], ['footer', 'navigation'],
   ['#playback', 'player', 'aria-label'], ['#timeline-preview img', 'frameAlt', 'alt'],
-  ['#timeline', 'timeline', 'aria-label'], ['#toggle', 'pause'], ['#quality', 'quality'],
-  ['#close-player', 'close'], ['.key-hint', 'timelineHint'], ['#close-choices', 'back'],
+  ['#timeline', 'timeline', 'aria-label'], ['#quality', 'quality', 'aria-label'], ['#quality', 'quality', 'title'],
+  ['#close-choices', 'back'],
 ]) i18n.bind(document.querySelector(selector), key, {}, attribute);
-for (const id of ['language', 'player-language']) $(id).onclick = () => {
+$('language').onclick = () => {
   i18n.setLanguage(i18n.language === 'en' ? 'ru' : 'en');
-  $('language').textContent = $('player-language').textContent = i18n.language === 'en' ? 'EN / RU' : 'RU / EN';
+  $('language').textContent = i18n.language === 'en' ? 'EN / RU' : 'RU / EN';
 };
 i18n.refresh();
 
