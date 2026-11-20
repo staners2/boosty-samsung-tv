@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {spawnSync} from 'node:child_process';
-import {readFile} from 'node:fs/promises';
+import {mkdir, readFile, writeFile} from 'node:fs/promises';
 
 test('build rejects untrusted backend URLs before generating a package', () => {
   for (const publicUrl of ['javascript:alert(1)', 'http://192.0.2.10', 'https://user:password@tv.example', 'https://tv.example/path']) {
@@ -12,8 +12,11 @@ test('build rejects untrusted backend URLs before generating a package', () => {
 });
 
 test('build produces a self-contained Tizen package and hosted phone/TV clients', async () => {
+  await mkdir('dist/wgt', {recursive: true});
+  await writeFile('dist/wgt/stale.wgt', 'stale package');
   const result = spawnSync(process.execPath, ['scripts/build.mjs'], {env: {...process.env, PUBLIC_URL: 'https://tv.example', BASE_PATH: '/boosty-tv'}, encoding: 'utf8'});
   assert.equal(result.status, 0, result.stderr);
+  await assert.rejects(readFile('dist/wgt/stale.wgt'), {code: 'ENOENT'});
   const html = await readFile('dist/wgt/index.html', 'utf8');
   assert.match(html, /\$WEBAPIS\/webapis\/webapis.js/);
   assert.doesNotMatch(html, /\{\{WEBAPIS\}\}/);

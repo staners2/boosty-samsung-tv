@@ -1,5 +1,5 @@
 import {build} from 'esbuild';
-import {mkdir, readFile, writeFile, copyFile} from 'node:fs/promises';
+import {mkdir, readFile, writeFile, copyFile, rm} from 'node:fs/promises';
 import {fileURLToPath} from 'node:url';
 import {join} from 'node:path';
 import {publicOrigin, mountPath} from '../server/config.mjs';
@@ -8,6 +8,7 @@ const root = fileURLToPath(new URL('..', import.meta.url));
 const origin = publicOrigin(process.env.PUBLIC_URL || 'http://localhost:8787');
 const prefix = mountPath(process.env.BASE_PATH || '');
 const output = join(root, 'dist');
+await rm(output, {recursive: true, force: true});
 for (const directory of ['tv', 'link', 'wgt', 'server']) await mkdir(join(output, directory), {recursive: true});
 for (const name of ['tv', 'link']) {
   await build({entryPoints: [join(root, 'web', name, 'app.js')], outfile: join(output, name, 'app.js'), bundle: true, format: 'iife', target: 'es2019', minify: false, legalComments: 'none'});
