@@ -321,12 +321,14 @@ export async function createApp({ publicUrl, basePath = '', vault, boosty, stati
       }
       if (request.method === 'POST' && path === '/api/progress') {
         const body = await jsonBody(request);
-        if (!identifier(body.videoId) || !Number.isSafeInteger(body.seconds) || body.seconds < 0 || body.seconds > 604800) {
+        if (!identifier(body.videoId) || (body.contentId !== undefined && !identifier(body.contentId))
+          || !Number.isSafeInteger(body.seconds) || body.seconds < 0 || body.seconds > 604800) {
           throw new AppError(400, 'invalid_progress', 'error_invalid_progress_25');
         }
         rememberProgress(session, body.videoId, body.seconds); pruneProgress();
         const key = progressKey(session, body.videoId);
-        const update = () => api.request(session, `v1/viewstat/video/${body.videoId}/timecode/`, {
+        const upstreamVideoId = body.contentId ?? body.videoId;
+        const update = () => api.request(session, `v1/viewstat/video/${upstreamVideoId}/timecode/`, {
           method: 'PUT', body: new URLSearchParams({ time_code: String(body.seconds) }),
         });
         const previous = progressUpdates.get(key);

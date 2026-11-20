@@ -212,7 +212,7 @@ test('Back closes the native player locally even while the progress network requ
   ui.finishProgress(); await tick();
 });
 
-test('timeline shows a cached frame honestly while loading the exact selection, and OK seeks exactly', async t => {
+test('timeline hides a stale frame while loading the exact selection, and OK seeks exactly', async t => {
   t.mock.timers.enable({apis: ['setTimeout']});
   const ui = await screen({stallPreview: true});
   const timeline = ui.document.getElementById('timeline'), panel = ui.document.getElementById('timeline-preview');
@@ -220,9 +220,9 @@ test('timeline shows a cached frame honestly while loading the exact selection, 
   t.mock.timers.tick(250); await tick(); ui.previewRequests[0].finish(); await tick();
   const first = panel.querySelector('img').src;
   timeline.value = '50'; timeline.oninput();
-  assert.equal(panel.querySelector('img').hidden, false);
-  assert.equal(panel.querySelector('img').src, first);
-  assert.match(panel.textContent, /0:50.*Кадр 0:20/);
+  assert.equal(panel.querySelector('img').hidden, true);
+  assert.equal(panel.querySelector('img').src, '');
+  assert.match(panel.textContent, /^0:50/);
   assert.doesNotMatch(panel.textContent, /кэш|cache/i);
   assert.equal(ui.previewRequests.length, 1);
   assert.equal(ui.calls.filter(([name]) => name === 'seek').length, 0);
@@ -235,7 +235,7 @@ test('timeline shows a cached frame honestly while loading the exact selection, 
   await ui.close();
 });
 
-test('scrubbing shows the selected chapter immediately across boundaries and never uses another video', async t => {
+test('scrubbing shows the selected chapter immediately and hides frames from another time or video', async t => {
   t.mock.timers.enable({apis: ['setTimeout']});
   const body = [
     {type: 'timecode', seconds: 90, videoId: 'vid-1', description: 'Обсуждение результатов'},
@@ -255,7 +255,8 @@ test('scrubbing shows the selected chapter immediately across boundaries and nev
     timeline.value = String(seconds); timeline.oninput();
     assert.equal(panel.querySelector('.preview-chapter')?.textContent, description);
     assert.equal(panel.querySelector('.preview-chapter')?.hidden, false);
-    assert.equal(panel.querySelector('img').src, frame);
+    assert.equal(panel.querySelector('img').hidden, true);
+    assert.equal(panel.querySelector('img').src, '');
     assert.doesNotMatch(panel.textContent, /кэш|cache/i);
   }
   for (const seconds of [130, 179, 0]) {
@@ -644,6 +645,30 @@ test('timeline focus previews an absolute position and OK commits one native see
   await ui.close();
 });
 
+test('holding a timeline arrow accelerates while separate presses remain ten seconds', async () => {
+  const ui = await screen({playbackDuration: 1000, metadataDuration: 1000});
+  ui.position(100); await tick();
+  const dispatchKey = (type, keyCode, timeStamp, repeat = false) => {
+    const event = new ui.window.Event(type);
+    event.keyCode = keyCode;
+    Object.defineProperties(event, {
+      repeat: {value: repeat},
+      timeStamp: {value: timeStamp},
+    });
+    ui.document.dispatchEvent(event);
+  };
+  dispatchKey('keydown', 38, 0);
+  dispatchKey('keydown', 39, 0);
+  for (const timeStamp of [900, 1000, 2000, 2500, 3000, 4000]) {
+    dispatchKey('keydown', 39, timeStamp, true);
+  }
+  assert.equal(Number(ui.document.getElementById('timeline').value), 420);
+  dispatchKey('keyup', 39, 4100);
+  dispatchKey('keydown', 39, 4200);
+  assert.equal(Number(ui.document.getElementById('timeline').value), 430);
+  await ui.close();
+});
+
 test('Back cancels a pending timeline selection without closing the video', async () => {
   const ui = await screen();
   ui.position(30); await tick();
@@ -855,7 +880,7 @@ test('closing sends the final progress point while an older save is still busy',
   ui.position(20); await tick(); ui.position(25); await tick();
   const closing = ui.close(); await tick();
   assert.equal(ui.document.getElementById('playback').hidden, true);
-  assert.deepEqual(ui.progressRequests.map(request => request.body), [{videoId: 'vid-1', seconds: 20}, {videoId: 'vid-1', seconds: 25}]);
+  assert.deepEqual(ui.progressRequests.map(request => request.body), [{videoId: 'vid-1', contentId: 'content-17', seconds: 20}, {videoId: 'vid-1', contentId: 'content-17', seconds: 25}]);
   ui.progressRequests[1].finish(); await tick(); ui.progressRequests[0].finish(); await closing;
 });
 
@@ -864,7 +889,7 @@ test('pause saves the exact position below the periodic save threshold', async (
   ui.position(10); await tick();
   assert.equal(ui.progressRequests.length, 0);
   await ui.key(32);
-  assert.deepEqual(ui.progressRequests.map(request => request.body), [{videoId: 'vid-1', seconds: 10}]);
+  assert.deepEqual(ui.progressRequests.map(request => request.body), [{videoId: 'vid-1', contentId: 'content-17', seconds: 10}]);
   await ui.close();
 });
 
@@ -876,14 +901,14 @@ test('older save acknowledgements never move the periodic save baseline backward
   assert.equal(ui.progressRequests.length, 2);
   ui.progressRequests[1].finish(); await tick(); ui.progressRequests[0].finish(); await tick();
   ui.position(35); await tick();
-  assert.deepEqual(ui.progressRequests.map(request => request.body), [{videoId: 'vid-1', seconds: 20}, {videoId: 'vid-1', seconds: 25}]);
+  assert.deepEqual(ui.progressRequests.map(request => request.body), [{videoId: 'vid-1', contentId: 'content-17', seconds: 20}, {videoId: 'vid-1', contentId: 'content-17', seconds: 25}]);
   const closing = ui.close(); await tick(); ui.finishProgress(); await closing;
 });
 
 test('playback completion saves its latest measured point', async () => {
   const ui = await screen();
   ui.position(12); await tick(); ui.end(); await tick();
-  assert.deepEqual(ui.progressRequests.map(request => request.body), [{videoId: 'vid-1', seconds: 12}]);
+  assert.deepEqual(ui.progressRequests.map(request => request.body), [{videoId: 'vid-1', contentId: 'content-17', seconds: 12}]);
   await ui.close();
 });
 

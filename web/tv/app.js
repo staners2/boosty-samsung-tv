@@ -26,6 +26,7 @@ const content = $('content'), status = $('status'), choices = $('choices');
 const playerPanel = document.querySelector('.player-shade');
 let profile, pair, pollTimer, route, activePage, currentVideo, lastSaved = -1, progressBusy = 0, returnPosition, pageObserver;
 let scrubPosition = null, seeking = false, playbackError = '', currentPost, previewMode;
+let scrubRepeatCode = null, scrubRepeatStartedAt = null, scrubRepeatLastAt = null;
 let timelineVideo, timelinePost, timelineDuration, timelineSegments = [];
 let playbackRequest, playbackStarted = false;
 let controlsTimer;
@@ -46,8 +47,8 @@ const framePreview = new FramePreview({
         const caption = panel.querySelector('figcaption');
         if (!caption.firstElementChild) caption.append(element('span'), element('strong', '', 'preview-chapter'));
         write(caption.firstElementChild, ui('frameCaption', () => ({time: time(state.target.seconds),
-          status: state.status === 'cached' ? ' · ' + i18n.text('frameAt', {time: time(state.frameSeconds)})
-            : state.status === 'loading' ? ' · ' + i18n.text('loadingFrame') : state.status === 'error' ? ' · ' + i18n.text('frameUnavailable') : ''})));
+          status: state.status === 'loading' ? ' · ' + i18n.text('loadingFrame')
+            : state.status === 'error' ? ' · ' + i18n.text('frameUnavailable') : ''})));
         caption.lastElementChild.hidden = !state.target.caption;
         write(caption.lastElementChild, state.target.caption);
       }
@@ -397,9 +398,25 @@ function updateTimelineSegments(seconds, duration) {
     fill.style.width = `${end > start && Number.isFinite(seconds) ? Math.max(0, Math.min(100, (seconds - start) / (end - start) * 100)) : 0}%`;
   }
 }
-function cancelScrub() { clearPreview({keepCache: true}); scrubPosition = null; updateTimeline(); }
+function resetScrubRepeat() {
+  scrubRepeatCode = null; scrubRepeatStartedAt = null; scrubRepeatLastAt = null;
+}
+function scrubStep(event) {
+  const timestamp = Number.isFinite(event.timeStamp) ? event.timeStamp : performance.now();
+  const continues = event.repeat && scrubRepeatCode === event.keyCode && scrubRepeatLastAt !== null
+    && timestamp >= scrubRepeatLastAt && timestamp - scrubRepeatLastAt <= 1000;
+  if (!continues) scrubRepeatStartedAt = timestamp;
+  scrubRepeatCode = event.keyCode; scrubRepeatLastAt = timestamp;
+  const elapsed = Math.max(0, timestamp - scrubRepeatStartedAt);
+  if (elapsed < 1000) return 10;
+  if (elapsed < 2500) return 30;
+  if (elapsed < 4000) return 60;
+  return 120;
+}
+function cancelScrub() { resetScrubRepeat(); clearPreview({keepCache: true}); scrubPosition = null; updateTimeline(); }
 async function commitScrub() {
   if (seeking || scrubPosition === null) return;
+  resetScrubRepeat();
   clearPreview({keepCache: true});
   const seconds = scrubPosition; scrubPosition = null; seeking = true; playbackError = '';
   $('timeline').setAttribute('aria-busy', 'true'); write($('player-status'), ui('seek'));
@@ -409,9 +426,11 @@ async function commitScrub() {
 async function saveProgress(force = false) {
   if (!currentVideo || !playbackStarted || !Number.isFinite(player.position) || (!force && (progressBusy > 0 || Math.abs(player.position - lastSaved) < 15))) return;
   const videoId = currentVideo.id, seconds = Math.floor(player.position);
+  const body = {videoId, seconds};
+  if (currentVideo.contentId) body.contentId = currentVideo.contentId;
   const video = currentVideo, request = playbackRequest;
   progressBusy++; video.timeCode = seconds; lastSaved = seconds;
-  try { await api.post('/api/progress', {videoId, seconds}); }
+  try { await api.post('/api/progress', body); }
   catch { if (currentVideo === video && playbackRequest === request) { playbackError = ui('progressUnsaved'); write($('player-status'), playbackError); showPlayerControls(); } }
   finally { progressBusy--; }
 }
@@ -494,7 +513,11 @@ document.addEventListener('keydown', event => {
     if (code === 38 && !$('timeline').disabled) { $('timeline').focus(); event.preventDefault(); return; }
     if ([37, 39].includes(code) && !$('timeline').disabled) {
       event.preventDefault(); $('timeline').focus();
-      if (!seeking) { scrubPosition = player.clamp((scrubPosition ?? player.position) + (code === 37 ? -10 : 10)); updateTimeline(); selectTimelineFrame(); }
+      if (!seeking) {
+        const step = scrubStep(event);
+        scrubPosition = player.clamp((scrubPosition ?? player.position) + (code === 37 ? -step : step));
+        updateTimeline(); selectTimelineFrame();
+      }
       return;
     }
     if (code === 40 && !$('quality').disabled) { event.preventDefault(); cancelScrub(); $('quality').focus(); return; }
@@ -518,6 +541,9 @@ document.addEventListener('keydown', event => {
   const controls = [...root.querySelectorAll('button:not(:disabled), input:not(:disabled), .post-body')].filter(node => node.getClientRects().length);
   const index = directionalTarget(controls.map(node => node.getBoundingClientRect()), controls.indexOf(document.activeElement), direction);
   if (controls[index]) { controls[index].focus(); controls[index].scrollIntoView({block: 'nearest', inline: 'nearest'}); }
+});
+document.addEventListener('keyup', event => {
+  if ([37, 39].includes(event.keyCode)) resetScrubRepeat();
 });
 document.addEventListener('focusin', event => {
   if (!$('playback').hidden) showPlayerControls();

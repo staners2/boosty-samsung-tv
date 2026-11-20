@@ -25,7 +25,7 @@ async function start(t, basePath = '', {postResponse, postClient, preview, now, 
     verifyCode: async () => ({ accessToken: 'test-access', refreshToken: 'test-refresh', expiresAt: null }),
     request: async (_session, path, options) => {
       requests.push({path, options});
-      if (path.startsWith('v1/viewstat/video/')) await onProgress?.(Number(options.body.get('time_code')));
+      if (path.startsWith('v1/viewstat/video/')) await onProgress?.(Number(options.body.get('time_code')), path);
       if (progressError && path.startsWith('v1/viewstat/video/')) throw progressError;
       if (/^v1\/blog\/[^/]+\/post\/[^?]+\?/.test(path)) await beforePost?.();
       if (postError && /^v1\/blog\/[^/]+\/post\/[^?]+\?/.test(path)) throw postError;
@@ -78,6 +78,24 @@ test('resume position survives a broker restart and expires exactly 24 hours aft
   now += 1;
   assert.deepEqual(await (await progress()).json(), {seconds: 0});
   assert.equal((await (await fetch(restarted.base + '/reader/api/post/reader/post-1', {headers})).json()).videos[0].timeCode, 0);
+});
+
+test('progress keeps the playback id locally but sends the Boosty content id upstream', async t => {
+  let upstreamPath;
+  const app = await start(t, '', {
+    postResponse: structuredClone(previewPost),
+    onProgress: (_seconds, path) => { upstreamPath = path; },
+  });
+  const headers = await authorize(app);
+  const saved = await app.post('/api/progress', {
+    videoId: 'playback-42',
+    contentId: 'content-17',
+    seconds: 72,
+  }, headers);
+  assert.equal(saved.status, 200);
+  assert.equal(upstreamPath, 'v1/viewstat/video/content-17/timecode/');
+  const progress = await fetch(app.base + '/api/progress/reader/post-1/playback-42', {headers});
+  assert.deepEqual(await progress.json(), {seconds: 72});
 });
 
 test('fresh Boosty positions take priority after confirming the locally saved stop, including a rewind to zero', async t => {

@@ -6,16 +6,15 @@ const tick = () => new Promise(resolve => setImmediate(resolve));
 const jpeg = 'data:image/jpeg;base64,/9j/2Q==';
 const target = {blog: 'author', postId: 'post', videoId: 'content', seconds: 20, caption: 'Глава'};
 
-test('a cache miss immediately shows the nearest frame with its real time, then the exact frame', async t => {
+test('a cache miss hides a stale nearby frame until the exact frame arrives', async t => {
   t.mock.timers.enable({apis: ['setTimeout']});
   const states = [], requests = [];
   const preview = new FramePreview({onChange: state => states.push(state), request: (selected, signal) => new Promise(resolve => requests.push({selected, signal, resolve}))});
   preview.select(target); t.mock.timers.tick(250); await tick();
   requests[0].resolve({seconds: 20, image: jpeg}); await tick();
   preview.select({...target, seconds: 35, caption: 'Другая глава'});
-  assert.equal(states.at(-1).status, 'cached');
-  assert.equal(states.at(-1).image, jpeg);
-  assert.equal(states.at(-1).frameSeconds, 20);
+  assert.equal(states.at(-1).status, 'loading');
+  assert.equal(states.at(-1).image, null);
   assert.equal(states.at(-1).target.seconds, 35);
   assert.equal(requests.length, 1);
   t.mock.timers.tick(250); await tick();
@@ -35,7 +34,8 @@ test('selecting an in-flight prefetched frame promotes it without aborting or re
   t.mock.timers.tick(500); await tick();
   preview.select({...target, seconds: 30, caption: 'Выбранная глава'}, [{...target, seconds: 40}]);
   assert.equal(requests[1].signal.aborted, false);
-  assert.equal(states.at(-1).frameSeconds, 20);
+  assert.equal(states.at(-1).status, 'loading');
+  assert.equal(states.at(-1).image, null);
   requests[1].resolve({seconds: 30, image: jpeg}); await tick();
   assert.equal(states.at(-1).status, 'ready');
   assert.equal(states.at(-1).target.caption, 'Выбранная глава');
@@ -77,7 +77,7 @@ test('the larger cache keeps visited frames through a minute of watching', async
   preview.clear();
 });
 
-test('nearby-frame fallback never crosses video identity or survives lost access', async t => {
+test('cache misses stay empty across time and video changes and lost access clears cache', async t => {
   t.mock.timers.enable({apis: ['setTimeout']});
   const states = [];
   let denied = false;
@@ -90,7 +90,8 @@ test('nearby-frame fallback never crosses video identity or survives lost access
   assert.equal(states.at(-1).status, 'loading');
   assert.equal(states.at(-1).image, null);
   preview.select({...target, seconds: 25});
-  assert.equal(states.at(-1).status, 'cached');
+  assert.equal(states.at(-1).status, 'loading');
+  assert.equal(states.at(-1).image, null);
   denied = true; t.mock.timers.tick(250); await tick();
   assert.equal(states.at(-1).status, 'error');
   assert.equal(states.at(-1).image, null);
@@ -111,15 +112,15 @@ test('preview debounces selection, cancels old requests and ignores stale frames
   requests[0].resolve({seconds: 30, image: jpeg}); await tick();
   assert.equal(states.at(-1).status, 'ready');
   preview.select({...target, seconds: 40});
-  assert.equal(states.at(-1).status, 'cached');
-  assert.equal(states.at(-1).frameSeconds, 30);
+  assert.equal(states.at(-1).status, 'loading');
+  assert.equal(states.at(-1).image, null);
   t.mock.timers.tick(250); await tick();
   preview.select({...target, seconds: 50});
   assert.equal(requests[1].signal.aborted, true);
   requests[1].resolve({seconds: 40, image: jpeg}); await tick();
-  assert.equal(states.at(-1).status, 'cached');
+  assert.equal(states.at(-1).status, 'loading');
   assert.equal(states.at(-1).target.seconds, 50);
-  assert.equal(states.at(-1).frameSeconds, 30);
+  assert.equal(states.at(-1).image, null);
   t.mock.timers.tick(250); await tick();
   preview.clear(); requests[2].resolve({seconds: 50, image: jpeg}); await tick();
   assert.equal(states.at(-1).status, 'hidden');
@@ -172,15 +173,15 @@ test('a foreground selection aborts prefetch and ignores its late frame', async 
   preview.select({...target, seconds: 40});
   assert.equal(requests[1].signal.aborted, true);
   requests[1].resolve({seconds: 30, image: jpeg}); await tick();
-  assert.equal(states.at(-1).status, 'cached');
-  assert.equal(states.at(-1).frameSeconds, 20);
+  assert.equal(states.at(-1).status, 'loading');
+  assert.equal(states.at(-1).image, null);
   assert.equal(states.at(-1).target.seconds, 40);
   t.mock.timers.tick(250); await tick();
   assert.equal(requests[2].selected.seconds, 40);
   requests[2].resolve({seconds: 40, image: jpeg}); await tick();
   preview.select({...target, seconds: 30});
-  assert.equal(states.at(-1).status, 'cached');
-  assert.notEqual(states.at(-1).frameSeconds, 30);
+  assert.equal(states.at(-1).status, 'loading');
+  assert.equal(states.at(-1).image, null);
   t.mock.timers.tick(250); await tick();
   assert.equal(requests[3].selected.seconds, 30);
   requests[3].resolve({seconds: 30, image: jpeg}); await tick();
@@ -243,8 +244,8 @@ test('frame cache evicts old frames by count and image memory rather than growin
       preview.select({...target, seconds}); t.mock.timers.tick(250); await tick();
     }
     preview.select({...target, seconds: count-1}); assert.equal(states.at(-1).status, 'ready');
-    preview.select({...target, seconds: 0}); assert.equal(states.at(-1).status, 'cached');
-    assert.notEqual(states.at(-1).frameSeconds, 0);
+    preview.select({...target, seconds: 0}); assert.equal(states.at(-1).status, 'loading');
+    assert.equal(states.at(-1).image, null);
     preview.clear();
   }
 });

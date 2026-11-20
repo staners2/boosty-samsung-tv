@@ -18,18 +18,6 @@ export class FramePreview {
     if (entry.expiresAt <= this.now()) return null;
     this.cache.set(key, entry); return entry.image;
   }
-  nearest(target) {
-    let nearest = null;
-    for (const [key, entry] of this.cache) {
-      if (entry.expiresAt <= this.now()) { this.cache.delete(key); continue; }
-      const [blog, postId, videoId, seconds] = JSON.parse(key);
-      if (blog !== target.blog || postId !== target.postId || videoId !== target.videoId) continue;
-      if (!nearest || Math.abs(seconds-target.seconds) < Math.abs(nearest.frameSeconds-target.seconds)) {
-        nearest = {image: entry.image, frameSeconds: seconds};
-      }
-    }
-    return nearest;
-  }
   load(target, epoch, signal) {
     const pending = {key: this.key(target), signal};
     pending.promise = (async () => {
@@ -100,8 +88,7 @@ export class FramePreview {
     const selection = {target, nearby}; this.selection = selection;
     if (!target.videoId) { this.onChange({status: 'error', target, image: null}); return; }
     if (pending) {
-      const nearest = this.nearest(target);
-      this.onChange({status: nearest ? 'cached' : 'loading', target, image: null, ...nearest});
+      this.onChange({status: 'loading', target, image: null});
       void this.finish(pending.promise, selection, epoch, pending.signal); return;
     }
     const controller = new AbortController(); this.controller = controller;
@@ -109,8 +96,7 @@ export class FramePreview {
     if (cached) {
       this.onChange({status: 'ready', target, image: cached}); this.prefetch(target, nearby, epoch, controller.signal); return;
     }
-    const nearest = this.nearest(target);
-    this.onChange({status: nearest ? 'cached' : 'loading', target, image: null, ...nearest});
+    this.onChange({status: 'loading', target, image: null});
     this.timer = setTimeout(() => {
       void this.finish(this.load(target, epoch, controller.signal), selection, epoch, controller.signal);
     }, this.delay);
